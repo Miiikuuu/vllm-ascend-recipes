@@ -570,7 +570,7 @@ verification: |-
 evaluation:
   accuracy:
     content: |-
-      使用 ModelZoo PP-DocLayoutV2 的端到端方法、原版 PaddleOCR-VL-0.9B、OmniDocBench v1.5（1355 页）及评估器提交 523fd1d529c3e9d0088c662e983aa70fb9585c9a。公开数据集 v1_5 修订为 91fe284bbfacfa687959ae3eb00846ca852aa907，不能使用新版 main 标注。每个标注页面生成一个 Markdown，保留页面名和阅读顺序。在 configs/end2end.yaml 指定精确标注及预测目录，安装官方 CDM 依赖后启用 CDM。
+      使用 ModelZoo PP-DocLayoutV2 的端到端方法、原版 PaddleOCR-VL-0.9B、OmniDocBench v1.5（1355 页）及评估器提交 523fd1d529c3e9d0088c662e983aa70fb9585c9a。公开数据集 v1_5 修订为 91fe284bbfacfa687959ae3eb00846ca852aa907，不能使用新版 main 标注。每个标注页面生成一个 Markdown，保留页面名和阅读顺序。在 configs/end2end.yaml 使用绝对路径指定精确标注及预测目录，安装官方 CDM 依赖后启用 CDM。
 
       每套预测使用全新的结果目录：CDM 按样本序号缓存渲染结果，复用演示或旧运行目录会污染得分。官方 CDM 默认使用 32 个 worker；根据主机可用内存降低 max_workers（本次使用两个），并将占用内存较多的评测与站点构建分开运行。
 
@@ -582,7 +582,19 @@ evaluation:
       # Install Node.js, ImageMagick, XeLaTeX and Source Han Sans SC for CDM.
       python -m pip install -r OmniDocBench/metrics/cdm/requirements.txt
       cd OmniDocBench
-      python pdf_validation.py --config configs/end2end.yaml
+      PADDLE_EVAL_SOURCE="$(pwd)"
+      PADDLE_EVAL_DIR="$(mktemp -d "$PADDLE_EVAL_SOURCE/evaluation-run.XXXXXX")"
+      mkdir "$PADDLE_EVAL_DIR/result"
+      cd "$PADDLE_EVAL_DIR"
+      PYTHONPATH="$PADDLE_EVAL_SOURCE${PYTHONPATH:+:$PYTHONPATH}" PADDLE_EVAL_SOURCE="$PADDLE_EVAL_SOURCE" python - <<'PY_EVAL'
+      import functools, logging, os, runpy, sys
+      from metrics.cal_metric import call_CDM
+      call_CDM.evaluate = functools.partialmethod(call_CDM.evaluate, max_workers=2)
+      logging.basicConfig(filename='renderer.log', level=logging.INFO)
+      source = os.environ['PADDLE_EVAL_SOURCE']
+      sys.argv = ['pdf_validation.py', '--config', source + '/configs/end2end.yaml']
+      runpy.run_path(source + '/pdf_validation.py', run_name='__main__')
+      PY_EVAL
       ```
 
       Overall = ((1 - 文字编辑距离) * 100 + 表格 TEDS * 100 + 公式 CDM * 100) / 3。缺少 CDM 时 Overall 不完整，不能填零或宣称通过。ModelZoo 单芯 300I DUO 参考值为 92.43%，其引用的官方值为 92.86%；这些是已发布参考数值，不是本配方声明的实测结果。

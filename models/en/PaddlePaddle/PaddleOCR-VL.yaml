@@ -581,7 +581,7 @@ verification: |-
 evaluation:
   accuracy:
     content: |-
-      Use the ModelZoo PP-DocLayoutV2 end-to-end method, original PaddleOCR-VL-0.9B, OmniDocBench v1.5 (1355 pages) and evaluator commit 523fd1d529c3e9d0088c662e983aa70fb9585c9a. The public dataset v1_5 revision is 91fe284bbfacfa687959ae3eb00846ca852aa907. Do not use the newer main annotation set. Generate one Markdown prediction per ground-truth page; preserve page names and reading order. Configure configs/end2end.yaml with the exact annotations and prediction directory and enable CDM after installing the official CDM dependencies.
+      Use the ModelZoo PP-DocLayoutV2 end-to-end method, original PaddleOCR-VL-0.9B, OmniDocBench v1.5 (1355 pages) and evaluator commit 523fd1d529c3e9d0088c662e983aa70fb9585c9a. The public dataset v1_5 revision is 91fe284bbfacfa687959ae3eb00846ca852aa907. Do not use the newer main annotation set. Generate one Markdown prediction per ground-truth page; preserve page names and reading order. Configure configs/end2end.yaml with absolute paths to the exact annotations and prediction directory and enable CDM after installing the official CDM dependencies.
 
       Use a fresh result directory for each prediction set: CDM caches renders by sample index, so reusing a demo or previous run can contaminate scores. The official CDM default is 32 workers; reduce its max_workers to fit available host RAM (this task uses two) and run memory-heavy evaluation separately from site builds.
 
@@ -593,7 +593,19 @@ evaluation:
       # Install Node.js, ImageMagick, XeLaTeX and Source Han Sans SC for CDM.
       python -m pip install -r OmniDocBench/metrics/cdm/requirements.txt
       cd OmniDocBench
-      python pdf_validation.py --config configs/end2end.yaml
+      PADDLE_EVAL_SOURCE="$(pwd)"
+      PADDLE_EVAL_DIR="$(mktemp -d "$PADDLE_EVAL_SOURCE/evaluation-run.XXXXXX")"
+      mkdir "$PADDLE_EVAL_DIR/result"
+      cd "$PADDLE_EVAL_DIR"
+      PYTHONPATH="$PADDLE_EVAL_SOURCE${PYTHONPATH:+:$PYTHONPATH}" PADDLE_EVAL_SOURCE="$PADDLE_EVAL_SOURCE" python - <<'PY_EVAL'
+      import functools, logging, os, runpy, sys
+      from metrics.cal_metric import call_CDM
+      call_CDM.evaluate = functools.partialmethod(call_CDM.evaluate, max_workers=2)
+      logging.basicConfig(filename='renderer.log', level=logging.INFO)
+      source = os.environ['PADDLE_EVAL_SOURCE']
+      sys.argv = ['pdf_validation.py', '--config', source + '/configs/end2end.yaml']
+      runpy.run_path(source + '/pdf_validation.py', run_name='__main__')
+      PY_EVAL
       ```
 
       Overall = ((1 - Text Edit Distance) * 100 + Table TEDS * 100 + Formula CDM * 100) / 3. Missing CDM is an incomplete Overall result, not zero or a pass. The ModelZoo reference is 92.43% on a single 300I DUO chip versus its cited official 92.86%; these are published reference values, not results claimed for this recipe.
