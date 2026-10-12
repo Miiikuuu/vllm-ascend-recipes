@@ -9,7 +9,7 @@ meta:
   difficulty: intermediate
   hardware:
     atlas_800_a2: experimental
-    atlas_300i_duo: experimental
+    atlas_300i_duo: verified
 model:
   model_id: PaddlePaddle/PaddleOCR-VL
   min_vllm_version: 0.11.1
@@ -38,8 +38,9 @@ model:
   install:
     pip: false
     docker:
-      note: Official latest main images resolved on 2026-10-12; immutable digests below. The existing HiDevLab 0.26.0rc1
-        baseline is separate from latest-main validation.
+      note: Official main images resolved on 2026-10-12 and pinned by digest. 310P payload graph/eager were tested
+        under PRoot 5.5.0 on the NPU; normal Docker launch was not tested in HiDevLab. The original 0.26.0rc1 baseline
+        and latest fetched source build are recorded separately.
 features:
   cpu_binding:
     label: CPU Binding

@@ -8,7 +8,7 @@ meta:
   difficulty: intermediate
   hardware:
     atlas_800_a2: experimental
-    atlas_300i_duo: experimental
+    atlas_300i_duo: verified
 model:
   model_id: PaddlePaddle/PaddleOCR-VL
   min_vllm_version: 0.11.1
@@ -37,7 +37,8 @@ model:
   install:
     pip: false
     docker:
-      note: 2026-10-12 解析到的官方最新 main 镜像，以下固定不可变摘要。HiDevLab 现有 0.26.0rc1 基线与最新 main 验证分别记录。
+      note: 2026-10-12 解析到的官方 main 镜像，以下固定不可变摘要。310P 镜像内容已在 NPU 上经 PRoot 5.5.0 实测 graph/eager；HiDevLab 内未验证普通 Docker
+        启动。现有 0.26.0rc1 基线与最新拉取源码构建分别记录。
 features:
   cpu_binding:
     label: CPU 绑定
