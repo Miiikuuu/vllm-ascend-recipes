@@ -20,6 +20,7 @@ model:
   base_args:
   - --trust-remote-code
   - --served-model-name
+  - PaddlePaddle/PaddleOCR-VL
   - PaddleOCR-VL-0.9B
   - --no-enable-prefix-caching
   - --mm-processor-cache-gb
@@ -102,7 +103,7 @@ prerequisites:
   content: 在 Atlas 800I A2 或 Atlas 300I DUO 上使用一个逻辑 NPU。实测 HiDevLab 卡为 Ascend 310P3，每个可见设备约 44 GB 显存；环境选择器中的 64
     GB 为主机内存。310P 仅支持 FP16。本任务尚未实测 A2。
 - title: 运行时版本
-  content: 源教程开头记录 v0.21.0rc1，文档宏目前解析为 v0.23.0。本次迁移检查的 main 为 8cc0e05387599313c5a2515ce119838dfbda2e5b，并独立固定最新发布的
+  content: 源教程开头记录 v0.21.0rc1，文档宏目前解析为 v0.23.0。本次迁移检查的 main 为 0830899b4e3f55ea6ed9f3518385e9d81192ae29，并独立固定最新发布的
     main 镜像。310P 的 FULL_DECODE_ONLY 需要 CANN >= 9.0.0；较旧且受支持的 CANN 使用下方 eager 场景。不要为匹配镜像而更换主机驱动。
 - title: 固定权重身份
   content: 已核验的原版 model.safetensors 大小为 1917255968 字节，SHA256 为 3085f1042e184f68f8a412aa0f64f2c4b8562989598bbfba326aaa11fc685de8。模型声明的
@@ -160,7 +161,7 @@ scenarios:
 
       vllm serve PaddlePaddle/PaddleOCR-VL \
           --max-num-batched-tokens 16384 \
-          --served-model-name PaddleOCR-VL-0.9B \
+          --served-model-name PaddlePaddle/PaddleOCR-VL PaddleOCR-VL-0.9B \
           --trust-remote-code \
           --no-enable-prefix-caching \
           --mm-processor-cache-gb 0 \
@@ -188,11 +189,13 @@ scenarios:
 
       vllm serve PaddlePaddle/PaddleOCR-VL \
           --max-model-len 16384 \
-          --served-model-name PaddleOCR-VL-0.9B \
+          --served-model-name PaddlePaddle/PaddleOCR-VL PaddleOCR-VL-0.9B \
           --trust-remote-code \
           --no-enable-prefix-caching \
           --mm-processor-cache-gb 0 \
           --dtype float16 \
+          --max-num-batched-tokens 2048 \
+          --tensor-parallel-size 1 \
           --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
           --additional-config '{"enable_cpu_binding":true}' \
           --host 127.0.0.1 --port 8000
@@ -217,11 +220,13 @@ scenarios:
 
       vllm serve PaddlePaddle/PaddleOCR-VL \
           --max-model-len 16384 \
-          --served-model-name PaddleOCR-VL-0.9B \
+          --served-model-name PaddlePaddle/PaddleOCR-VL PaddleOCR-VL-0.9B \
           --trust-remote-code \
           --no-enable-prefix-caching \
           --mm-processor-cache-gb 0 \
           --dtype float16 \
+          --max-num-batched-tokens 2048 \
+          --tensor-parallel-size 1 \
           --enforce-eager \
           --additional-config '{"enable_cpu_binding":true}' \
           --host 127.0.0.1 --port 8000
@@ -312,7 +317,7 @@ scenarios:
       ```bash
       python3 -m venv layout-venv
       source layout-venv/bin/activate
-      python -m pip install --upgrade pip
+      python -m pip install --upgrade pip uv
       git clone https://gitcode.com/Ascend/ModelZoo-PyTorch.git modelzoo
       git -C modelzoo checkout e779117e8cfeba296a7105e26adac0741ab04768
       export MODELZOO_DIR="$PWD/modelzoo/ACL_PyTorch/built-in/ocr/PP-DocLayoutV2"
@@ -336,15 +341,25 @@ scenarios:
       ```bash
       source /usr/local/Ascend/ascend-toolkit/set_env.sh
       export DISABLE_MODEL_SOURCE_CHECK=True
+      # Activate layout-venv so PaddleX finds the pinned paddle2onnx executable.
+      source layout-venv/bin/activate
       paddlex --paddle2onnx --paddle_model_dir PP-DocLayoutV2 --onnx_model_dir PP-DocLayoutV2
-      # Install the official graph optimizer in a separate tools environment:
-      # python -m pip install msit && msit install surgeon
+      deactivate
+      # Surgeon requires ONNX Runtime wheels that are unavailable for Python 3.12.
+      # Use a separate Python 3.10 tool environment; keep the serving/layout environments.
+      layout-venv/bin/uv venv --python python3.10 --seed optimizer-venv
+      source optimizer-venv/bin/activate
+      python -m pip install --upgrade pip 'setuptools<81'
+      python -m pip install msit 'onnx==1.16.1' 'numpy<2' 'pandas<3'
+      msit install surgeon
       python -m auto_optimizer optimize PP-DocLayoutV2/inference.onnx PP-DocLayoutV2/inference_opt.onnx
+      deactivate
       # Confirm the chip with npu-smi; this example is for the tested 310P3.
       atc --model=PP-DocLayoutV2/inference_opt.onnx --framework=5 \
           --output=PP-DocLayoutV2/inference --soc_version=Ascend310P3 \
           --input_shape 'im_shape:-1,2;image:-1,3,800,800;scale_factor:-1,2'
       test -f PP-DocLayoutV2/inference_linux_aarch64.om
+      source layout-venv/bin/activate
       ```
   - title: 通过识别服务解析文档
     content: |-
@@ -487,6 +502,7 @@ verification: |-
   def main():
       parser = argparse.ArgumentParser()
       parser.add_argument('--base-url', required=True)
+      parser.add_argument('--model', default='PaddleOCR-VL-0.9B')
       parser.add_argument('--samples', type=Path, required=True)
       parser.add_argument('--output', type=Path, required=True)
       parser.add_argument('--repeats', type=int, default=1)
@@ -497,12 +513,12 @@ verification: |-
           assert response.status == 200
       models = get_json(args.base_url + '/v1/models')
       (args.output / 'models.json').write_text(json.dumps(models, indent=2))
-      assert any(item['id'] == 'PaddleOCR-VL-0.9B' for item in models['data'])
+      assert any(item['id'] == args.model for item in models['data'])
       results = []
       for repeat in range(-args.warmup, args.repeats):
           for task, prompt in TASKS.items():
               data = (args.samples / (task + '-crop.png')).read_bytes()
-              payload = {'model': 'PaddleOCR-VL-0.9B', 'messages': [{'role': 'user', 'content': [
+              payload = {'model': args.model, 'messages': [{'role': 'user', 'content': [
                   {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + base64.b64encode(data).decode()}},
                   {'type': 'text', 'text': prompt}]}], 'temperature': 0.0, 'max_tokens': 2048, 'seed': 0}
               request = urllib.request.Request(args.base_url + '/v1/chat/completions', data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
@@ -576,7 +592,7 @@ references:
 - title: PaddleOCR-VL 模型说明
   url: https://huggingface.co/PaddlePaddle/PaddleOCR-VL
 - title: 昇腾源教程
-  url: https://github.com/vllm-project/vllm-ascend/blob/8cc0e05387599313c5a2515ce119838dfbda2e5b/docs/source/tutorials/models/PaddleOCR-VL.md
+  url: https://github.com/vllm-project/vllm-ascend/blob/0830899b4e3f55ea6ed9f3518385e9d81192ae29/docs/source/tutorials/models/PaddleOCR-VL.md
 - title: PP-DocLayoutV2 ModelZoo 集成和评估
   url: https://gitcode.com/Ascend/ModelZoo-PyTorch/tree/e779117e8cfeba296a7105e26adac0741ab04768/ACL_PyTorch/built-in/ocr/PP-DocLayoutV2
 - title: OmniDocBench v1.5 数据集
