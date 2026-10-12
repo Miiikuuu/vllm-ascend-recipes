@@ -1,0 +1,587 @@
+meta:
+  title: PaddleOCR-VL
+  slug: paddleocr-vl
+  provider: PaddlePaddle
+  description: 在昇腾上部署原版 PaddleOCR-VL-0.9B，涵盖单 NPU 服务和结合 PP-DocLayoutV2 的文档解析。
+  date_added: '2026-10-12'
+  date_updated: '2026-10-12'
+  difficulty: intermediate
+  hardware:
+    atlas_800_a2: experimental
+    atlas_300i_duo: experimental
+model:
+  model_id: PaddlePaddle/PaddleOCR-VL
+  min_vllm_version: 0.11.1
+  architecture: dense
+  parameter_count: 0.9B
+  active_parameters: null
+  context_length: 131072
+  modality: multimodal
+  base_args:
+  - --trust-remote-code
+  - --served-model-name
+  - PaddleOCR-VL-0.9B
+  - --no-enable-prefix-caching
+  - --mm-processor-cache-gb
+  - '0'
+  base_env:
+    VLLM_USE_MODELSCOPE: 'True'
+    ASCEND_RT_VISIBLE_DEVICES: '0'
+    TASK_QUEUE_ENABLE: '1'
+    PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
+  docker_image:
+    atlas_800_a2: quay.io/ascend/vllm-ascend:nightly-main@sha256:6d2aa300863a4145249822c625affbe98ed4f231605789b9118ae137370250f3
+    atlas_300i_duo: quay.io/ascend/vllm-ascend:nightly-main-310p@sha256:3706317b3a91fda5b7b53174d65d97aeb5c762068c8edf96387f0e9f462f9723
+  nightly_required: false
+  install:
+    pip: false
+    docker:
+      note: 2026-10-12 解析到的官方最新 main 镜像，以下固定不可变摘要。HiDevLab 现有 0.26.0rc1 基线与最新 main 验证分别记录。
+features:
+  cpu_binding:
+    label: CPU 绑定
+    description: 请求 CPU 绑定；容器 CPU 配额与 NUMA 亲和性冲突时可能跳过绑定。
+    args:
+    - --additional-config
+    - '{"enable_cpu_binding":true}'
+variants:
+  default:
+    precision: bf16
+    vram_minimum_gb: 3
+    description: A2 上的原版 0.9B 权重；模型配置上下文为 131072，各部署场景限制单独列出。
+    supported_hardware:
+    - atlas_800_a2
+  fp16:
+    precision: fp16
+    vram_minimum_gb: 3
+    description: 将原版权重转换为 FP16；Atlas 300I DUO 必须使用此精度。
+    supported_hardware:
+    - atlas_300i_duo
+    extra_args:
+    - --dtype
+    - float16
+compatible_strategies:
+- single_node_A2
+- single_node_310p
+hardware_overrides:
+  atlas_300i_duo:
+    extra_args:
+    - --dtype
+    - float16
+    - --max-model-len
+    - '16384'
+  atlas_800_a2:
+    extra_args:
+    - --max-num-batched-tokens
+    - '16384'
+    extra_env:
+      CPU_AFFINITY_CONF: '1'
+strategy_overrides: {}
+dependencies: []
+guide: ''
+overview: PaddleOCR-VL-0.9B 将 NaViT 风格的动态分辨率视觉编码器与 ERNIE-4.5-0.3B 结合，用于识别文字、表格、公式和图表。PP-DocLayoutV2 提供区域检测和阅读顺序预测，组成完整文档解析流程。本配方保留原版
+  PaddlePaddle/PaddleOCR-VL 权重；VL-1.5 和 VL-1.6 属于其他模型。
+weight_download:
+- weight_version: 原版 PaddleOCR-VL-0.9B
+  sources:
+  - source: ModelScope
+    url: https://www.modelscope.cn/models/PaddlePaddle/PaddleOCR-VL
+    command: |-
+      ```bash
+      modelscope download --model PaddlePaddle/PaddleOCR-VL --local_dir PaddleOCR-VL
+      sha256sum PaddleOCR-VL/model.safetensors
+      ```
+  - source: HuggingFace
+    url: https://huggingface.co/PaddlePaddle/PaddleOCR-VL
+    command: |-
+      ```bash
+      hf download PaddlePaddle/PaddleOCR-VL --revision 7fa00a8c55b735ba51ba49a9058f3f9c57a99a11 --local-dir PaddleOCR-VL
+      ```
+prerequisites:
+- title: 硬件与精度
+  content: 在 Atlas 800I A2 或 Atlas 300I DUO 上使用一个逻辑 NPU。实测 HiDevLab 卡为 Ascend 310P3，每个可见设备约 44 GB 显存；环境选择器中的 64
+    GB 为主机内存。310P 仅支持 FP16。本任务尚未实测 A2。
+- title: 运行时版本
+  content: 源教程开头记录 v0.21.0rc1，文档宏目前解析为 v0.23.0。本次迁移检查的 main 为 8cc0e05387599313c5a2515ce119838dfbda2e5b，并独立固定最新发布的
+    main 镜像。310P 的 FULL_DECODE_ONLY 需要 CANN >= 9.0.0；较旧且受支持的 CANN 使用下方 eager 场景。不要为匹配镜像而更换主机驱动。
+- title: 固定权重身份
+  content: 已核验的原版 model.safetensors 大小为 1917255968 字节，SHA256 为 3085f1042e184f68f8a412aa0f64f2c4b8562989598bbfba326aaa11fc685de8。模型声明的
+    131072 上下文不代表已经验证的 310P 服务长度；教程使用 16384。
+- title: 隔离服务与解析环境
+  content: vLLM 与 Paddle 版面解析使用独立环境。310P 通过 OM/ACL 执行版面推理，Paddle 仅做 CPU 预处理，不能套用 Paddle custom-NPU 路径。复现 ModelZoo
+    路径时关闭文档方向分类和去畸变。
+env_setup:
+  container:
+    A2:
+      content: |-
+        ```bash
+        export IMAGE='quay.io/ascend/vllm-ascend:nightly-main@sha256:6d2aa300863a4145249822c625affbe98ed4f231605789b9118ae137370250f3'
+        docker run --rm --name paddleocr-vl --shm-size=1g --net=host \
+            --device /dev/davinci0 --device /dev/davinci_manager \
+            --device /dev/devmm_svm --device /dev/hisi_hdc \
+            -v /usr/local/dcmi:/usr/local/dcmi \
+            -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+            -v /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro \
+            -v /etc/ascend_install.info:/etc/ascend_install.info:ro \
+            -v "$PWD":/work -v "$HOME/.cache":/root/.cache \
+            -w /work -it "$IMAGE" bash
+        ```
+    300I DUO:
+      content: |-
+        ```bash
+        export IMAGE='quay.io/ascend/vllm-ascend:nightly-main-310p@sha256:3706317b3a91fda5b7b53174d65d97aeb5c762068c8edf96387f0e9f462f9723'
+        docker run --rm --name paddleocr-vl --shm-size=1g --net=host \
+            --device /dev/davinci0 --device /dev/davinci_manager \
+            --device /dev/devmm_svm --device /dev/hisi_hdc \
+            -v /usr/local/dcmi:/usr/local/dcmi \
+            -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+            -v /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro \
+            -v /etc/ascend_install.info:/etc/ascend_install.info:ro \
+            -v "$PWD":/work -v "$HOME/.cache":/root/.cache \
+            -w /work -it "$IMAGE" bash
+        ```
+scenarios:
+- npu: Atlas 800I A2
+  precision: BF16
+  deployment: 单节点
+  case: 高吞吐（图模式）
+  tags:
+  - a2-single
+  strategy: single_node_A2
+  steps:
+  - title: 启动单 NPU 服务
+    content: |-
+      ```bash
+      export VLLM_USE_MODELSCOPE=True
+      export ASCEND_RT_VISIBLE_DEVICES=0
+      export TASK_QUEUE_ENABLE=1
+      export CPU_AFFINITY_CONF=1
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+
+      vllm serve PaddlePaddle/PaddleOCR-VL \
+          --max-num-batched-tokens 16384 \
+          --served-model-name PaddleOCR-VL-0.9B \
+          --trust-remote-code \
+          --no-enable-prefix-caching \
+          --mm-processor-cache-gb 0 \
+          --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+          --additional-config '{"enable_cpu_binding":true}' \
+          --host 127.0.0.1 --port 8000
+      ```
+  - title: 验证实际识别
+    content: 在 /health 成功后执行下方四类任务的“功能验证”。检查原始输出、结束原因和服务错误。310P 图模式要求 CANN >= 9.0.0；eager 为教程规定的回退方式。
+- npu: Atlas 300I DUO
+  precision: FP16
+  deployment: 单节点
+  case: 高吞吐（图模式）
+  tags:
+  - 310p-single
+  strategy: single_node_310p
+  steps:
+  - title: 启动单 NPU 服务
+    content: |-
+      ```bash
+      export VLLM_USE_MODELSCOPE=True
+      export ASCEND_RT_VISIBLE_DEVICES=0
+      export TASK_QUEUE_ENABLE=1
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+
+      vllm serve PaddlePaddle/PaddleOCR-VL \
+          --max-model-len 16384 \
+          --served-model-name PaddleOCR-VL-0.9B \
+          --trust-remote-code \
+          --no-enable-prefix-caching \
+          --mm-processor-cache-gb 0 \
+          --dtype float16 \
+          --compilation-config '{"cudagraph_mode":"FULL_DECODE_ONLY"}' \
+          --additional-config '{"enable_cpu_binding":true}' \
+          --host 127.0.0.1 --port 8000
+      ```
+  - title: 验证实际识别
+    content: 在 /health 成功后执行下方四类任务的“功能验证”。检查原始输出、结束原因和服务错误。310P 图模式要求 CANN >= 9.0.0；eager 为教程规定的回退方式。
+- npu: Atlas 300I DUO
+  precision: FP16
+  deployment: 单节点
+  case: Eager 回退
+  tags:
+  - 310p-single
+  strategy: single_node_310p
+  steps:
+  - title: 启动单 NPU 服务
+    content: |-
+      ```bash
+      export VLLM_USE_MODELSCOPE=True
+      export ASCEND_RT_VISIBLE_DEVICES=0
+      export TASK_QUEUE_ENABLE=1
+      export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
+
+      vllm serve PaddlePaddle/PaddleOCR-VL \
+          --max-model-len 16384 \
+          --served-model-name PaddleOCR-VL-0.9B \
+          --trust-remote-code \
+          --no-enable-prefix-caching \
+          --mm-processor-cache-gb 0 \
+          --dtype float16 \
+          --enforce-eager \
+          --additional-config '{"enable_cpu_binding":true}' \
+          --host 127.0.0.1 --port 8000
+      ```
+  - title: 验证实际识别
+    content: 在 /health 成功后执行下方四类任务的“功能验证”。检查原始输出、结束原因和服务错误。310P 图模式要求 CANN >= 9.0.0；eager 为教程规定的回退方式。
+- npu: Atlas 800I A2
+  precision: BF16
+  deployment: 离线文档解析
+  case: PP-DocLayoutV2
+  strategy: single_node_A2
+  steps:
+  - title: 准备独立版面环境
+    content: |-
+      ```bash
+      export IMAGE=ccr-2vdh3abv-pub.cnc.bj.baidubce.com/device/paddle-npu:cann800-ubuntu20-npu-910b-base-aarch64-gcc84
+      docker run --rm -it --name paddleocr-layout-a2 --net=host --shm-size=1g \
+          --device /dev/davinci0 --device /dev/davinci_manager \
+          --device /dev/devmm_svm --device /dev/hisi_hdc \
+          -v /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro \
+          -v /usr/local/bin/npu-smi:/usr/local/bin/npu-smi \
+          -v /usr/local/dcmi:/usr/local/dcmi -v "$PWD":/work -w /work \
+          -e ASCEND_RT_VISIBLE_DEVICES=0 "$IMAGE" bash
+      # Inside the Paddle container (Python 3.10, aarch64):
+      python -m pip install paddlepaddle==3.2.0
+      python -m pip install https://paddle-whl.bj.bcebos.com/stable/npu/paddle-custom-npu/paddle_custom_npu-3.2.0-cp310-cp310-linux_aarch64.whl
+      python -m pip install 'paddleocr[doc-parser]==3.3.2' safetensors modelscope
+      modelscope download --model PaddlePaddle/PP-DocLayoutV2 --local_dir PP-DocLayoutV2
+      ```
+  - title: 通过识别服务解析文档
+    content: |-
+      在线 vLLM 服务继续运行在独立环境中。将以下脚本保存为版面环境中的 parse_document.py。310P 由补丁后的版面预测器执行 OM 模型，Paddle 预处理仍在 CPU 上。
+
+      ```python
+      import argparse
+      import json
+      import time
+      from pathlib import Path
+
+      from paddleocr import PaddleOCRVL
+
+      parser = argparse.ArgumentParser()
+      parser.add_argument('--input', required=True)
+      parser.add_argument('--layout-model', type=Path, required=True)
+      parser.add_argument('--output', type=Path, default=Path('document-output'))
+      parser.add_argument('--server-url', default='http://127.0.0.1:8000/v1')
+      parser.add_argument('--layout-device', choices=['cpu', 'npu'], default='cpu')
+      args = parser.parse_args()
+      if args.layout_device == 'cpu':
+          # CPU Paddle preprocessing + the ModelZoo-patched ACL InferSession(0).
+          # PP-DocLayoutV2 still runs on NPU; Paddle custom-NPU is not used on 310P.
+          assert (args.layout_model / 'inference_linux_aarch64.om').is_file(), 'Compile the aarch64 OM model first'
+      pipeline = PaddleOCRVL(
+          vl_rec_backend='vllm-server',
+          vl_rec_server_url=args.server_url,
+          layout_detection_model_name='PP-DocLayoutV2',
+          layout_detection_model_dir=str(args.layout_model),
+          use_doc_orientation_classify=False,
+          use_doc_unwarping=False,
+          device=args.layout_device,
+      )
+      args.output.mkdir(parents=True, exist_ok=True)
+      start = time.perf_counter()
+      count = 0
+      for result in pipeline.predict_iter(args.input):
+          result.save_to_json(str(args.output))
+          result.save_to_markdown(str(args.output))
+          count += 1
+      elapsed = time.perf_counter() - start
+      assert count > 0, 'No pages parsed'
+      assert list(args.output.glob('*.md')), 'No Markdown output'
+      assert list(args.output.glob('*.json')), 'No JSON output'
+      (args.output / 'timing.json').write_text(json.dumps({'pages': count, 'seconds': elapsed, 'seconds_per_page': elapsed / count, 'scope': 'pipeline prediction only; excludes pipeline initialization', 'layout_device': args.layout_device}, indent=2) + '\n')
+      print(f'Parsed {count} page(s) in {elapsed:.3f}s')
+      ```
+
+      ```bash
+      python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device npu --server-url http://127.0.0.1:8000/v1 --output document-output
+      ```
+- npu: Atlas 300I DUO
+  precision: FP16
+  deployment: 离线文档解析
+  case: PP-DocLayoutV2
+  strategy: single_node_310p
+  steps:
+  - title: 准备独立版面环境
+    content: |-
+      ```bash
+      python3 -m venv layout-venv
+      source layout-venv/bin/activate
+      python -m pip install --upgrade pip
+      git clone https://gitcode.com/Ascend/ModelZoo-PyTorch.git modelzoo
+      git -C modelzoo checkout e779117e8cfeba296a7105e26adac0741ab04768
+      export MODELZOO_DIR="$PWD/modelzoo/ACL_PyTorch/built-in/ocr/PP-DocLayoutV2"
+      python -m pip install -r "$MODELZOO_DIR/requirements.txt"
+      # The reference requirements install three overlapping cv2 distributions.
+      # Keep the headless build on containers without libGL; reinstall it last.
+      python -m pip uninstall -y opencv-python opencv-contrib-python opencv-python-headless
+      python -m pip install opencv-python-headless==4.11.0.86
+      python -m pip install \
+          https://aisbench.obs.myhuaweicloud.com/packet/ais_bench_infer/0.0.2/ait/ais_bench-0.0.2-py3-none-any.whl \
+          https://aisbench.obs.myhuaweicloud.com/packet/ais_bench_infer/0.0.2/ait/aclruntime-0.0.2-cp312-cp312-linux_aarch64.whl
+      export PADDLEX_PACKAGE_DIR="$(python -c 'import importlib.util,pathlib; print(pathlib.Path(importlib.util.find_spec("paddlex").origin).parent)')"
+      (cd "$PADDLEX_PACKAGE_DIR" && patch --dry-run -p1 < "$MODELZOO_DIR/paddlex.patch")
+      (cd "$PADDLEX_PACKAGE_DIR" && patch -p1 < "$MODELZOO_DIR/paddlex.patch")
+      modelscope download --model PaddlePaddle/PP-DocLayoutV2 --local_dir PP-DocLayoutV2
+      ```
+  - title: 导出并编译 OM 版面模型
+    content: |-
+      以下为固定版本的 ModelZoo 转换流程。核实 Python/ACL 轮子兼容性及实际芯片。参考环境编译约需 1.5 小时，请保存日志。
+
+      ```bash
+      source /usr/local/Ascend/ascend-toolkit/set_env.sh
+      export DISABLE_MODEL_SOURCE_CHECK=True
+      paddlex --paddle2onnx --paddle_model_dir PP-DocLayoutV2 --onnx_model_dir PP-DocLayoutV2
+      # Install the official graph optimizer in a separate tools environment:
+      # python -m pip install msit && msit install surgeon
+      python -m auto_optimizer optimize PP-DocLayoutV2/inference.onnx PP-DocLayoutV2/inference_opt.onnx
+      # Confirm the chip with npu-smi; this example is for the tested 310P3.
+      atc --model=PP-DocLayoutV2/inference_opt.onnx --framework=5 \
+          --output=PP-DocLayoutV2/inference --soc_version=Ascend310P3 \
+          --input_shape 'im_shape:-1,2;image:-1,3,800,800;scale_factor:-1,2'
+      test -f PP-DocLayoutV2/inference_linux_aarch64.om
+      ```
+  - title: 通过识别服务解析文档
+    content: |-
+      在线 vLLM 服务继续运行在独立环境中。将以下脚本保存为版面环境中的 parse_document.py。310P 由补丁后的版面预测器执行 OM 模型，Paddle 预处理仍在 CPU 上。
+
+      ```python
+      import argparse
+      import json
+      import time
+      from pathlib import Path
+
+      from paddleocr import PaddleOCRVL
+
+      parser = argparse.ArgumentParser()
+      parser.add_argument('--input', required=True)
+      parser.add_argument('--layout-model', type=Path, required=True)
+      parser.add_argument('--output', type=Path, default=Path('document-output'))
+      parser.add_argument('--server-url', default='http://127.0.0.1:8000/v1')
+      parser.add_argument('--layout-device', choices=['cpu', 'npu'], default='cpu')
+      args = parser.parse_args()
+      if args.layout_device == 'cpu':
+          # CPU Paddle preprocessing + the ModelZoo-patched ACL InferSession(0).
+          # PP-DocLayoutV2 still runs on NPU; Paddle custom-NPU is not used on 310P.
+          assert (args.layout_model / 'inference_linux_aarch64.om').is_file(), 'Compile the aarch64 OM model first'
+      pipeline = PaddleOCRVL(
+          vl_rec_backend='vllm-server',
+          vl_rec_server_url=args.server_url,
+          layout_detection_model_name='PP-DocLayoutV2',
+          layout_detection_model_dir=str(args.layout_model),
+          use_doc_orientation_classify=False,
+          use_doc_unwarping=False,
+          device=args.layout_device,
+      )
+      args.output.mkdir(parents=True, exist_ok=True)
+      start = time.perf_counter()
+      count = 0
+      for result in pipeline.predict_iter(args.input):
+          result.save_to_json(str(args.output))
+          result.save_to_markdown(str(args.output))
+          count += 1
+      elapsed = time.perf_counter() - start
+      assert count > 0, 'No pages parsed'
+      assert list(args.output.glob('*.md')), 'No Markdown output'
+      assert list(args.output.glob('*.json')), 'No JSON output'
+      (args.output / 'timing.json').write_text(json.dumps({'pages': count, 'seconds': elapsed, 'seconds_per_page': elapsed / count, 'scope': 'pipeline prediction only; excludes pipeline initialization', 'layout_device': args.layout_device}, indent=2) + '\n')
+      print(f'Parsed {count} page(s) in {elapsed:.3f}s')
+      ```
+
+      ```bash
+      python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device cpu --server-url http://127.0.0.1:8000/v1 --output document-output
+      ```
+verification: |-
+  将以下脚本保存到工作目录。教程收据链接目前返回 HTTP 400，因此检查使用固定的官方演示图，仅裁剪输入区域，并记录来源、坐标及哈希。NPU 容器无法访问 Hugging Face 时，在客户端下载相同文件并传入，使用 --source-dir 指定目录。这些是功能样例断言，不是 OmniDocBench 精度结果。表格原始输出为 OTSL，文档流水线将其转换为 HTML。
+
+  ```python
+  import argparse
+  import hashlib
+  import json
+  import urllib.request
+  from pathlib import Path
+
+  from PIL import Image
+
+  REVISION = '702b96b0a06740b0ed3d41ba382a5bf69986dcae'
+  SAMPLES = {
+      'ocr': ('text_english_arabic.jpg', (45, 159, 607, 449), 'f670627f3afa2e7ea312c71ce5c3c7b77a42938f9a1e62e5ba2505e19f5dede7'),
+      'table': ('table_01.jpg', (713, 81, 1302, 424), 'ca798601c74d70cbb34a3a0b91161d21b79513bb049791c96dfed14bb087ceaf'),
+      'formula': ('formula_EN.jpg', (126, 1328, 594, 1570), 'b9a96b4be44896a45df21103ba1b06af18621381b563707a42fa6cdf21f837d1'),
+      'chart': ('chart_01.jpg', (27, 81, 614, 400), 'd77acb00585d16f978123bc8288c41e7a589083df51e18076a20853892c0d4a9'),
+  }
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--output', type=Path, default=Path('samples'))
+  parser.add_argument('--source-dir', type=Path)
+  args = parser.parse_args()
+  args.output.mkdir(parents=True, exist_ok=True)
+  manifest = []
+  for task, (filename, box, expected_hash) in SAMPLES.items():
+      source = (args.source_dir or args.output) / filename
+      url = f'https://huggingface.co/datasets/PaddlePaddle/PaddleOCR-VL_demo/resolve/{REVISION}/imgs/{filename}'
+      if not source.exists():
+          with urllib.request.urlopen(url, timeout=90) as response:
+              source.write_bytes(response.read())
+      data = source.read_bytes()
+      assert hashlib.sha256(data).hexdigest() == expected_hash, f'Source mismatch: {filename}'
+      # The official demo collages contain input and expected output panels.
+      # Crop only the input element; record coordinates in original pixels.
+      with Image.open(source) as image:
+          sx, sy = image.width / 1335, image.height / 1888
+          coordinates = tuple(round(value * (sx if index % 2 == 0 else sy)) for index, value in enumerate(box))
+          crop = image.crop(coordinates)
+          crop.thumbnail((1536, 1536))
+          target = args.output / f'{task}-crop.png'
+          crop.save(target)
+      manifest.append({'task': task, 'source_url': url, 'source_sha256': expected_hash, 'crop_coordinates': coordinates, 'crop_sha256': hashlib.sha256(target.read_bytes()).hexdigest()})
+  (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+  ```
+
+  保存为 `prepare_samples.py`，然后执行：
+
+  ```bash
+  python prepare_samples.py --output samples
+  ```
+
+  保存为 `verify.py`：
+
+  ```python
+  import argparse
+  import base64
+  import hashlib
+  import json
+  import re
+  import time
+  import urllib.request
+  from pathlib import Path
+
+  TASKS = {'ocr': 'OCR:', 'table': 'Table Recognition:', 'formula': 'Formula Recognition:', 'chart': 'Chart Recognition:'}
+
+
+  def get_json(url):
+      with urllib.request.urlopen(url, timeout=15) as response:
+          return json.load(response)
+
+
+  def check_content(task, content):
+      normalized = re.sub(r'\s+', '', content).lower()
+      if task == 'ocr':
+          expected = ['paddleocr', 'opensource', '2020', 'recognition']
+          normalized = re.sub(r'[^a-z0-9]', '', content.lower())
+      elif task == 'table':
+          expected = ['<fcel>', '<nl>', 'regularhours', 'monday'] + [f'11/{day}/2013' for day in range(1, 15)]
+      elif task == 'formula':
+          expected = ['f(x)', '2x', 'f(3)', '=27']
+          normalized = normalized.replace('\\left', '').replace('\\right', '').replace('{', '').replace('}', '')
+      else:
+          expected = ['2017', '2024', '37', '22']
+      missing = [value for value in expected if value not in normalized]
+      return {'expected_fragments': expected, 'missing_fragments': missing, 'otsl_row_count': content.count('<nl>') if task == 'table' else None, 'passed': not missing and (task != 'table' or content.count('<nl>') == 15)}
+
+
+  def main():
+      parser = argparse.ArgumentParser()
+      parser.add_argument('--base-url', required=True)
+      parser.add_argument('--samples', type=Path, required=True)
+      parser.add_argument('--output', type=Path, required=True)
+      parser.add_argument('--repeats', type=int, default=1)
+      parser.add_argument('--warmup', type=int, default=0)
+      args = parser.parse_args()
+      args.output.mkdir(parents=True, exist_ok=True)
+      with urllib.request.urlopen(args.base_url + '/health', timeout=15) as response:
+          assert response.status == 200
+      models = get_json(args.base_url + '/v1/models')
+      (args.output / 'models.json').write_text(json.dumps(models, indent=2))
+      assert any(item['id'] == 'PaddleOCR-VL-0.9B' for item in models['data'])
+      results = []
+      for repeat in range(-args.warmup, args.repeats):
+          for task, prompt in TASKS.items():
+              data = (args.samples / (task + '-crop.png')).read_bytes()
+              payload = {'model': 'PaddleOCR-VL-0.9B', 'messages': [{'role': 'user', 'content': [
+                  {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + base64.b64encode(data).decode()}},
+                  {'type': 'text', 'text': prompt}]}], 'temperature': 0.0, 'max_tokens': 2048, 'seed': 0}
+              request = urllib.request.Request(args.base_url + '/v1/chat/completions', data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
+              start = time.perf_counter()
+              with urllib.request.urlopen(request, timeout=300) as response:
+                  result = json.load(response)
+              latency = time.perf_counter() - start
+              (args.output / f'{task}-{repeat}.json').write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n')
+              choice = result['choices'][0]
+              check = check_content(task, choice['message']['content'])
+              check['finish_reason'] = choice['finish_reason']
+              check['passed'] = check['passed'] and choice['finish_reason'] == 'stop'
+              row = {'task': task, 'repeat': repeat, 'warmup': repeat < 0, 'input_sha256': hashlib.sha256(data).hexdigest(), 'latency_seconds': latency, 'usage': result.get('usage'), 'validation': check}
+              results.append(row)
+              (args.output / 'summary.json').write_text(json.dumps({'definition': 'functional sample checks; not a dataset accuracy score', 'concurrency': 1, 'temperature': 0.0, 'seed': 0, 'max_tokens': 2048, 'warmup_rounds': args.warmup, 'repeats': args.repeats, 'results': results}, indent=2, ensure_ascii=False) + '\n')
+              print(json.dumps(row, ensure_ascii=False), flush=True)
+      if not all(row['validation']['passed'] for row in results):
+          raise SystemExit('Functional sample validation failed; inspect raw outputs')
+
+
+  if __name__ == '__main__':
+      main()
+  ```
+
+  ```bash
+  python verify.py --base-url 'http://<server_ip>:<port>' --samples samples --output request-results --warmup 1 --repeats 3
+  ```
+evaluation:
+  accuracy:
+    content: |-
+      使用 ModelZoo PP-DocLayoutV2 的端到端方法、原版 PaddleOCR-VL-0.9B、OmniDocBench v1.5（1355 页）及评估器提交 523fd1d529c3e9d0088c662e983aa70fb9585c9a。公开数据集 v1_5 修订为 91fe284bbfacfa687959ae3eb00846ca852aa907，不能使用新版 main 标注。每个标注页面生成一个 Markdown，保留页面名和阅读顺序。在 configs/end2end.yaml 指定精确标注及预测目录，安装官方 CDM 依赖后启用 CDM。
+
+      ```bash
+      git clone https://github.com/opendatalab/OmniDocBench.git
+      git -C OmniDocBench checkout 523fd1d529c3e9d0088c662e983aa70fb9585c9a
+      # In a separate Python 3.10 evaluation environment:
+      python -m pip install -r OmniDocBench/requirements.txt
+      # Install Node.js, ImageMagick, XeLaTeX and Source Han Sans SC for CDM.
+      python -m pip install -r OmniDocBench/metrics/cdm/requirements.txt
+      cd OmniDocBench
+      python pdf_validation.py --config configs/end2end.yaml
+      ```
+
+      Overall = ((1 - 文字编辑距离) * 100 + 表格 TEDS * 100 + 公式 CDM * 100) / 3。缺少 CDM 时 Overall 不完整，不能填零或宣称通过。ModelZoo 单芯 300I DUO 参考值为 92.43%，其引用的官方值为 92.86%；这些是已发布参考数值，不是本配方声明的实测结果。
+  performance:
+    content: |-
+      ModelZoo 单芯 300I DUO 报告每个输入文件 12.10 秒。test.py 在流水线初始化后计时整个预测循环，并关闭方向分类和去畸变，但未说明预热、并发、图像缩放及输出长度限制。比较前记录这些条件及 PDF/图像输入方式。verify.py 的样例时间为 API 端到端延迟：并发 1、预热一轮、测量三轮、temperature=0、seed=0、max_tokens=2048，不代表 ModelZoo 完整文档基准。使用 npu-smi 和 Torch 分配器日志记录显存，将启动激活峰值与运行时采样分开。
+
+      ```bash
+      npu-smi info
+      python verify.py --base-url 'http://127.0.0.1:8000' --samples samples --output benchmark-results --warmup 1 --repeats 3
+      npu-smi info
+      ```
+
+      通用服务基准参见 [vLLM 基准测试](https://docs.vllm.ai/en/latest/cli/bench/serve/) 和 [AISBench](https://github.com/aisbench/benchmark)。使用模型专用图像和预期输出，纯文字随机数据不能验证 PaddleOCR 精度。
+performance:
+  accuracy: '[ModelZoo 参考方法](https://gitcode.com/Ascend/ModelZoo-PyTorch/tree/master/ACL_PyTorch/built-in/ocr/PP-DocLayoutV2)
+    定义 OmniDocBench v1.5 文字编辑距离、表格 TEDS 和公式 CDM。完整复现结果与功能检查分开报告。'
+  benchmark: ModelZoo 的 12.10 秒参考使用文档流水线计时；[vLLM 基准](https://docs.vllm.ai/en/latest/cli/bench/serve/) 或 [AISBench](https://github.com/aisbench/benchmark)
+    用于另行定义的服务负载。保存原始请求、用量、预热、并发和显存观测。
+tuning: 教程基线为单节点、单 NPU。A2 使用 max-num-batched-tokens=16384；310P 使用 max-model-len=16384 和 FP16。310P 的 FULL_DECODE_ONLY
+  要求 CANN >= 9.0.0。独立文档区域识别关闭前缀及多模态处理器缓存。调整容量前记录正确性与前后时间；教程不支持 PD 分离。
+faq: |-
+  - **Paddle 示例中的 device="npu" 可以用于 310P 吗？** 原示例属于 A2。310P 应使用固定的 ModelZoo OM 集成，Paddle 做 CPU 预处理，ACL InferSession(0) 执行版面推理。
+  - **表格为何不是 HTML？** 原始元素识别返回 OTSL 单元格和行标签，PaddleOCR 文档流水线将其转换为 HTML。
+  - **CPU 绑定为何被跳过？** 容器 CPU 配额可能与 NUMA 亲和性冲突，保存警告并报告实际亲和性状态。
+  - **模型列表为何不够？** 就绪后必须发送实际图像请求，检查预期内容及 finish_reason=stop。
+  - **新版 PaddleOCR 为何选择其他模型？** 本配方固定原版兼容的 PaddleOCR 3.3.2；较新 API 应明确选择 pipeline_version="v1"，并核实参数支持。
+  - **310P 如何处理 Triton？** 官方 310P 镜像不包含 Triton。不要安装 CUDA 轮子或在共享环境中盲目卸载依赖。
+references:
+- title: PaddleOCR-VL 模型说明
+  url: https://huggingface.co/PaddlePaddle/PaddleOCR-VL
+- title: 昇腾源教程
+  url: https://github.com/vllm-project/vllm-ascend/blob/8cc0e05387599313c5a2515ce119838dfbda2e5b/docs/source/tutorials/models/PaddleOCR-VL.md
+- title: PP-DocLayoutV2 ModelZoo 集成和评估
+  url: https://gitcode.com/Ascend/ModelZoo-PyTorch/tree/e779117e8cfeba296a7105e26adac0741ab04768/ACL_PyTorch/built-in/ocr/PP-DocLayoutV2
+- title: OmniDocBench v1.5 数据集
+  url: https://huggingface.co/datasets/opendatalab/OmniDocBench/tree/v1_5
+- title: 官方演示素材
+  url: https://huggingface.co/datasets/PaddlePaddle/PaddleOCR-VL_demo/tree/702b96b0a06740b0ed3d41ba382a5bf69986dcae/imgs
+- title: 昇腾支持矩阵
+  url: https://docs.vllm.ai/projects/ascend/en/latest/user_guide/support_matrix/supported_models.html
