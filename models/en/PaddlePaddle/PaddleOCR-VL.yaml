@@ -583,6 +583,8 @@ evaluation:
     content: |-
       Use the ModelZoo PP-DocLayoutV2 end-to-end method, original PaddleOCR-VL-0.9B, OmniDocBench v1.5 (1355 pages) and evaluator commit 523fd1d529c3e9d0088c662e983aa70fb9585c9a. The public dataset v1_5 revision is 91fe284bbfacfa687959ae3eb00846ca852aa907. Do not use the newer main annotation set. Generate one Markdown prediction per ground-truth page; preserve page names and reading order. Configure configs/end2end.yaml with the exact annotations and prediction directory and enable CDM after installing the official CDM dependencies.
 
+      Use a fresh result directory for each prediction set: CDM caches renders by sample index, so reusing a demo or previous run can contaminate scores. The official CDM default is 32 workers; reduce its max_workers to fit available host RAM (this task uses two) and run memory-heavy evaluation separately from site builds.
+
       ```bash
       git clone https://github.com/opendatalab/OmniDocBench.git
       git -C OmniDocBench checkout 523fd1d529c3e9d0088c662e983aa70fb9585c9a
