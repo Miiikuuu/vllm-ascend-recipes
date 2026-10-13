@@ -311,6 +311,7 @@ scenarios:
       parser.add_argument('--output', type=Path, default=Path('document-output'))
       parser.add_argument('--server-url', default='http://127.0.0.1:8000/v1')
       parser.add_argument('--layout-device', choices=['cpu', 'npu'], default='cpu')
+      parser.add_argument('--page-batch-size', type=int, default=16)
       args = parser.parse_args()
       if args.layout_device == 'npu':
           # OpenCV adds its package directory; CANN compiler workers need stdlib first.
@@ -321,7 +322,14 @@ scenarios:
           # CPU Paddle preprocessing + the ModelZoo-patched ACL InferSession(0).
           # PP-DocLayoutV2 still runs on NPU; Paddle custom-NPU is not used on 310P.
           assert (args.layout_model / 'inference_linux_aarch64.om').is_file(), 'Compile the aarch64 OM model first'
+      # Bound queued page images on the tested 32 GiB A2 host.
+      # Preserve every other official pipeline setting, including layout batches.
+      from paddlex.inference import load_pipeline_config
+      assert args.page_batch_size > 0
+      config = load_pipeline_config('PaddleOCR-VL')
+      config['batch_size'] = args.page_batch_size
       pipeline = PaddleOCRVL(
+          paddlex_config=config,
           vl_rec_backend='vllm-server',
           vl_rec_server_url=args.server_url,
           layout_detection_model_name='PP-DocLayoutV2',
@@ -348,12 +356,14 @@ scenarios:
       assert count > 0, 'No pages parsed'
       assert list(args.output.glob('*.md')), 'No Markdown output'
       assert list(args.output.glob('*.json')), 'No JSON output'
-      (args.output / 'timing.json').write_text(json.dumps({'pages': count, 'seconds': elapsed, 'seconds_per_page': elapsed / count, 'scope': 'pipeline prediction only; excludes pipeline initialization', 'layout_device': args.layout_device}, indent=2) + '\n')
+      (args.output / 'timing.json').write_text(json.dumps({'pages': count, 'seconds': elapsed, 'seconds_per_page': elapsed / count, 'scope': 'pipeline prediction only; excludes pipeline initialization', 'layout_device': args.layout_device, 'page_batch_size': args.page_batch_size}, indent=2) + '\n')
       print(f'Parsed {count} page(s) in {elapsed:.3f}s')
       ```
 
+      The page batch is 16 for the tested 32 GiB A2 host; the upstream 64-page default reached the host memory limit on the full dataset. Keep this setting explicit when comparing memory and timing.
+
       ```bash
-      python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device npu --server-url http://127.0.0.1:8000/v1 --output document-output
+      python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device npu --page-batch-size 16 --server-url http://127.0.0.1:8000/v1 --output document-output
       ```
 - npu: Atlas 300I DUO
   precision: FP16
