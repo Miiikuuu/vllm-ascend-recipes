@@ -479,7 +479,7 @@ scenarios:
       python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device cpu --server-url http://127.0.0.1:8000/v1 --output document-output
       ```
 verification: |-
-  Run this self-contained block in an empty working directory; it writes the sample and verification scripts and checks both served aliases. The tutorial receipt URL currently returns HTTP 400, so these checks use pinned official demonstration images and crop only input regions. Sources, coordinates and hashes are recorded. If the NPU container cannot reach Hugging Face, download the same source files on the client and transfer them; pass --source-dir with their directory. These are functional sample assertions, not OmniDocBench accuracy. Table output is OTSL; the document pipeline converts it to HTML.
+  Run this self-contained block in an empty working directory; it writes the sample and verification scripts and checks both served aliases. The tutorial receipt URL currently returns HTTP 400, so these checks use pinned official demonstration images and crop only input regions. Sources, coordinates and hashes are recorded. If the NPU container cannot reach Hugging Face, download the same four original source files on the client and transfer them into samples/ before running this block; their hashes are checked again. These are functional sample assertions, not OmniDocBench accuracy. Table output is OTSL; the document pipeline converts it to HTML.
 
   ```bash
   set -euo pipefail
