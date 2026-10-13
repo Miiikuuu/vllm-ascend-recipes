@@ -313,6 +313,7 @@ scenarios:
       assert args.page_batch_size > 0
       config = load_pipeline_config('PaddleOCR-VL')
       config['batch_size'] = args.page_batch_size
+      config['use_queues'] = False
       pipeline = PaddleOCRVL(
           paddlex_config=config,
           vl_rec_backend='vllm-server',
@@ -341,11 +342,11 @@ scenarios:
       assert count > 0, 'No pages parsed'
       assert list(args.output.glob('*.md')), 'No Markdown output'
       assert list(args.output.glob('*.json')), 'No JSON output'
-      (args.output / 'timing.json').write_text(json.dumps({'pages': count, 'seconds': elapsed, 'seconds_per_page': elapsed / count, 'scope': 'pipeline prediction only; excludes pipeline initialization', 'layout_device': args.layout_device, 'page_batch_size': args.page_batch_size}, indent=2) + '\n')
+      (args.output / 'timing.json').write_text(json.dumps({'pages': count, 'seconds': elapsed, 'seconds_per_page': elapsed / count, 'scope': 'pipeline prediction only; excludes pipeline initialization', 'layout_device': args.layout_device, 'page_batch_size': args.page_batch_size, 'use_queues': config['use_queues']}, indent=2) + '\n')
       print(f'Parsed {count} page(s) in {elapsed:.3f}s')
       ```
 
-      在实测的32 GiB A2主机上使用16页批次；上游默认64页批次在全量数据上触及主机内存限额。对比内存和耗时时须保持批次条件明确。
+      实测的32 GiB A2主机采用16页批次，并关闭预处理队列。开启队列时，64页和16页批次均触及主机内存限额，因为版面队列会独立缓存最多64批数据。对比内存和耗时时须明确这两个设置。
 
       ```bash
       python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device npu --page-batch-size 16 --server-url http://127.0.0.1:8000/v1 --output document-output

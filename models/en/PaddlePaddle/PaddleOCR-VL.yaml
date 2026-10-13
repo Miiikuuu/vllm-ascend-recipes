@@ -328,6 +328,7 @@ scenarios:
       assert args.page_batch_size > 0
       config = load_pipeline_config('PaddleOCR-VL')
       config['batch_size'] = args.page_batch_size
+      config['use_queues'] = False
       pipeline = PaddleOCRVL(
           paddlex_config=config,
           vl_rec_backend='vllm-server',
@@ -356,11 +357,11 @@ scenarios:
       assert count > 0, 'No pages parsed'
       assert list(args.output.glob('*.md')), 'No Markdown output'
       assert list(args.output.glob('*.json')), 'No JSON output'
-      (args.output / 'timing.json').write_text(json.dumps({'pages': count, 'seconds': elapsed, 'seconds_per_page': elapsed / count, 'scope': 'pipeline prediction only; excludes pipeline initialization', 'layout_device': args.layout_device, 'page_batch_size': args.page_batch_size}, indent=2) + '\n')
+      (args.output / 'timing.json').write_text(json.dumps({'pages': count, 'seconds': elapsed, 'seconds_per_page': elapsed / count, 'scope': 'pipeline prediction only; excludes pipeline initialization', 'layout_device': args.layout_device, 'page_batch_size': args.page_batch_size, 'use_queues': config['use_queues']}, indent=2) + '\n')
       print(f'Parsed {count} page(s) in {elapsed:.3f}s')
       ```
 
-      The page batch is 16 for the tested 32 GiB A2 host; the upstream 64-page default reached the host memory limit on the full dataset. Keep this setting explicit when comparing memory and timing.
+      The tested 32 GiB A2 host uses 16-page batches with preprocessing queues disabled. Queue-enabled runs reached the host memory limit with both 64- and 16-page batches because the layout queue buffers up to 64 batches independently. Keep both settings explicit when comparing memory and timing.
 
       ```bash
       python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device npu --page-batch-size 16 --server-url http://127.0.0.1:8000/v1 --output document-output
