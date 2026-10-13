@@ -464,9 +464,13 @@ scenarios:
       python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device cpu --server-url http://127.0.0.1:8000/v1 --output document-output
       ```
 verification: |-
-  将以下脚本保存到工作目录。教程收据链接目前返回 HTTP 400，因此检查使用固定的官方演示图，仅裁剪输入区域，并记录来源、坐标及哈希。NPU 容器无法访问 Hugging Face 时，在客户端下载相同文件并传入，使用 --source-dir 指定目录。这些是功能样例断言，不是 OmniDocBench 精度结果。表格原始输出为 OTSL，文档流水线将其转换为 HTML。
+  在空工作目录执行下面的完整代码块；它会写入样本准备和验证脚本，并检查两个服务模型别名。
 
-  ```python
+  教程收据链接目前返回 HTTP 400，因此检查使用固定的官方演示图，仅裁剪输入区域，并记录来源、坐标及哈希。NPU 容器无法访问 Hugging Face 时，在客户端下载相同文件并传入，使用 --source-dir 指定目录。这些是功能样例断言，不是 OmniDocBench 精度结果。表格原始输出为 OTSL，文档流水线将其转换为 HTML。
+
+  ```bash
+  set -euo pipefail
+  cat > prepare_samples.py <<'PADDLE_SAMPLES_PY'
   import argparse
   import hashlib
   import json
@@ -507,17 +511,8 @@ verification: |-
           crop.save(target)
       manifest.append({'task': task, 'source_url': url, 'source_sha256': expected_hash, 'crop_coordinates': coordinates, 'crop_sha256': hashlib.sha256(target.read_bytes()).hexdigest()})
   (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-  ```
-
-  保存为 `prepare_samples.py`，然后执行：
-
-  ```bash
-  python prepare_samples.py --output samples
-  ```
-
-  保存为 `verify.py`：
-
-  ```python
+  PADDLE_SAMPLES_PY
+  cat > verify.py <<'PADDLE_VERIFY_PY'
   import argparse
   import base64
   import hashlib
@@ -593,10 +588,16 @@ verification: |-
 
   if __name__ == '__main__':
       main()
+  PADDLE_VERIFY_PY
+  python prepare_samples.py --output samples
+  python verify.py --base-url 'http://<server_ip>:<port>' --model PaddlePaddle/PaddleOCR-VL --samples samples --output request-results-canonical --warmup 0 --repeats 1
+  python verify.py --base-url 'http://<server_ip>:<port>' --model PaddleOCR-VL-0.9B --samples samples --output request-results-alias --warmup 0 --repeats 1
   ```
 
+  功能检查后，可重复请求记录观测数据：
+
   ```bash
-  python verify.py --base-url 'http://<server_ip>:<port>' --samples samples --output request-results --warmup 1 --repeats 3
+  python verify.py --base-url 'http://<server_ip>:<port>' --samples samples --output request-results-repeated --warmup 1 --repeats 3
   ```
 evaluation:
   accuracy:

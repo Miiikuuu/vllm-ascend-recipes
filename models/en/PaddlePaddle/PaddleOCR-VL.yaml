@@ -479,9 +479,11 @@ scenarios:
       python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device cpu --server-url http://127.0.0.1:8000/v1 --output document-output
       ```
 verification: |-
-  Save the following scripts in the working directory. The tutorial receipt URL currently returns HTTP 400, so these checks use pinned official demonstration images and crop only input regions. Sources, coordinates and hashes are recorded. If the NPU container cannot reach Hugging Face, download the same source files on the client and transfer them; pass --source-dir with their directory. These are functional sample assertions, not OmniDocBench accuracy. Table output is OTSL; the document pipeline converts it to HTML.
+  Run this self-contained block in an empty working directory; it writes the sample and verification scripts and checks both served aliases. The tutorial receipt URL currently returns HTTP 400, so these checks use pinned official demonstration images and crop only input regions. Sources, coordinates and hashes are recorded. If the NPU container cannot reach Hugging Face, download the same source files on the client and transfer them; pass --source-dir with their directory. These are functional sample assertions, not OmniDocBench accuracy. Table output is OTSL; the document pipeline converts it to HTML.
 
-  ```python
+  ```bash
+  set -euo pipefail
+  cat > prepare_samples.py <<'PADDLE_SAMPLES_PY'
   import argparse
   import hashlib
   import json
@@ -522,17 +524,8 @@ verification: |-
           crop.save(target)
       manifest.append({'task': task, 'source_url': url, 'source_sha256': expected_hash, 'crop_coordinates': coordinates, 'crop_sha256': hashlib.sha256(target.read_bytes()).hexdigest()})
   (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-  ```
-
-  Save as `prepare_samples.py`, then:
-
-  ```bash
-  python prepare_samples.py --output samples
-  ```
-
-  Save as `verify.py`:
-
-  ```python
+  PADDLE_SAMPLES_PY
+  cat > verify.py <<'PADDLE_VERIFY_PY'
   import argparse
   import base64
   import hashlib
@@ -608,10 +601,16 @@ verification: |-
 
   if __name__ == '__main__':
       main()
+  PADDLE_VERIFY_PY
+  python prepare_samples.py --output samples
+  python verify.py --base-url 'http://<server_ip>:<port>' --model PaddlePaddle/PaddleOCR-VL --samples samples --output request-results-canonical --warmup 0 --repeats 1
+  python verify.py --base-url 'http://<server_ip>:<port>' --model PaddleOCR-VL-0.9B --samples samples --output request-results-alias --warmup 0 --repeats 1
   ```
 
+  For repeated observations after the functional check:
+
   ```bash
-  python verify.py --base-url 'http://<server_ip>:<port>' --samples samples --output request-results --warmup 1 --repeats 3
+  python verify.py --base-url 'http://<server_ip>:<port>' --samples samples --output request-results-repeated --warmup 1 --repeats 3
   ```
 evaluation:
   accuracy:
