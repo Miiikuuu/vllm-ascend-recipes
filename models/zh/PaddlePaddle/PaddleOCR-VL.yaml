@@ -4,10 +4,10 @@ meta:
   provider: PaddlePaddle
   description: 在昇腾上部署原版 PaddleOCR-VL-0.9B，涵盖单 NPU 服务和结合 PP-DocLayoutV2 的文档解析。
   date_added: '2026-10-12'
-  date_updated: '2026-10-12'
+  date_updated: '2026-10-13'
   difficulty: intermediate
   hardware:
-    atlas_800_a2: experimental
+    atlas_800_a2: verified
     atlas_300i_duo: verified
 model:
   model_id: PaddlePaddle/PaddleOCR-VL
@@ -37,8 +37,8 @@ model:
   install:
     pip: false
     docker:
-      note: 2026-10-12 解析到的官方 main 镜像，以下固定不可变摘要。310P 镜像内容已在 NPU 上经 PRoot 5.5.0 实测 graph/eager；HiDevLab 内未验证普通 Docker
-        启动。现有 0.26.0rc1 基线与最新拉取源码构建分别记录。
+      note: 2026-10-12 解析并固定官方 main 镜像摘要。A2 的 BF16 图模式及原生 Paddle 版面推理、310P 的 graph/eager/OM 已在真实 NPU 上经完整镜像内容及原始入口、PRoot5.5.0
+        人工实测。原生 Docker 和 nightly CI 未验证。平台原始包环境及独立源码构建分别保留。
 features:
   cpu_binding:
     label: CPU 绑定
@@ -76,8 +76,11 @@ hardware_overrides:
     extra_args:
     - --max-num-batched-tokens
     - '16384'
+    - --gpu-memory-utilization
+    - '0.80'
     extra_env:
       CPU_AFFINITY_CONF: '1'
+      TASK_QUEUE_ENABLE: '0'
 strategy_overrides: {}
 dependencies: []
 guide: ''
@@ -102,7 +105,7 @@ weight_download:
 prerequisites:
 - title: 硬件与精度
   content: 在 Atlas 800I A2 或 Atlas 300I DUO 上使用一个逻辑 NPU。实测 HiDevLab 卡为 Ascend 310P3，每个可见设备约 44 GB 显存；环境选择器中的 64
-    GB 为主机内存。310P 仅支持 FP16。本任务尚未实测 A2。
+    GB 为主机内存。310P 仅支持 FP16。A2 的 BF16 图模式和 Paddle custom-NPU 文档解析已在910B3/64GiB HBM 上人工实测。
 - title: 运行时版本
   content: 源教程开头记录 v0.21.0rc1，文档宏目前解析为 v0.23.0。本次迁移检查的 main 为 0830899b4e3f55ea6ed9f3518385e9d81192ae29，并独立固定最新发布的
     main 镜像。310P 的 FULL_DECODE_ONLY 需要 CANN >= 9.0.0；较旧且受支持的 CANN 使用下方 eager 场景。不要为匹配镜像而更换主机驱动。
@@ -112,6 +115,12 @@ prerequisites:
 - title: 隔离服务与解析环境
   content: vLLM 与 Paddle 版面解析使用独立环境。310P 通过 OM/ACL 执行版面推理，Paddle 仅做 CPU 预处理，不能套用 Paddle custom-NPU 路径。复现 ModelZoo
     路径时关闭文档方向分类和去畸变。
+- title: A2 实测配置
+  content: 910B3/64GiB HBM、驱动26.1.1/CANN9.1.0 实测：TASK_QUEUE_ENABLE=0 与 gpu-memory-utilization=0.80 的 BF16 图模式通过两种别名的四类识别。教程默认设置出现视觉位置索引错误和采样阶段内存不足。这些是本任务实测配置，不代表达到吞吐验收目标；原生
+    Docker 和 nightly CI 仍未验证。
+- title: Paddle NPU 编译环境
+  content: 独立的 CANN8.0/Paddle3.2 版面容器需要兼容的 NumPy<2 和编译依赖、ATB ABI0，以及 CANN 子进程中的标准库路径优先级。下方命令保留全部检查，完整 Paddle run_check
+    和原生 NPU 文档推理均已通过；它与 vLLM 的 CANN9.1 环境不同。
 env_setup:
   container:
     A2:
@@ -156,12 +165,13 @@ scenarios:
       ```bash
       export VLLM_USE_MODELSCOPE=True
       export ASCEND_RT_VISIBLE_DEVICES=0
-      export TASK_QUEUE_ENABLE=1
+      export TASK_QUEUE_ENABLE=0
       export CPU_AFFINITY_CONF=1
       export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 
       vllm serve PaddlePaddle/PaddleOCR-VL \
           --max-num-batched-tokens 16384 \
+          --gpu-memory-utilization 0.80 \
           --served-model-name PaddlePaddle/PaddleOCR-VL PaddleOCR-VL-0.9B \
           --trust-remote-code \
           --no-enable-prefix-caching \
@@ -243,7 +253,7 @@ scenarios:
   - title: 准备独立版面环境
     content: |-
       ```bash
-      export IMAGE=ccr-2vdh3abv-pub.cnc.bj.baidubce.com/device/paddle-npu:cann800-ubuntu20-npu-910b-base-aarch64-gcc84
+      export IMAGE=ccr-2vdh3abv-pub.cnc.bj.baidubce.com/device/paddle-npu:cann800-ubuntu20-npu-910b-base-aarch64-gcc84@sha256:9bbc08c1bed9c064f0775da4a7bd1c857fa33d0d51bcd705e6829f4cbcf86911
       docker run --rm -it --name paddleocr-layout-a2 --net=host --shm-size=1g \
           --device /dev/davinci0 --device /dev/davinci_manager \
           --device /dev/devmm_svm --device /dev/hisi_hdc \
@@ -252,9 +262,20 @@ scenarios:
           -v /usr/local/dcmi:/usr/local/dcmi -v "$PWD":/work -w /work \
           -e ASCEND_RT_VISIBLE_DEVICES=0 "$IMAGE" bash
       # Inside the Paddle container (Python 3.10, aarch64):
-      python -m pip install paddlepaddle==3.2.0
+      source /usr/local/Ascend/ascend-toolkit/set_env.sh
+      source /usr/local/Ascend/nnal/atb/set_env.sh --cxx_abi=0
+      python -m pip install 'numpy<2' 'setuptools<81' 'protobuf==3.20.3' decorator sympy scipy attrs psutil paddlepaddle==3.2.0
       python -m pip install https://paddle-whl.bj.bcebos.com/stable/npu/paddle-custom-npu/paddle_custom_npu-3.2.0-cp310-cp310-linux_aarch64.whl
       python -m pip install 'paddleocr[doc-parser]==3.3.2' safetensors modelscope
+      python - <<'PY'
+      import sys
+      import sysconfig
+      import paddle
+
+      sys.path.insert(0, sysconfig.get_path('stdlib'))
+      assert 'npu' in paddle.device.get_all_custom_device_type()
+      paddle.utils.run_check()
+      PY
       modelscope download --model PaddlePaddle/PP-DocLayoutV2 --local_dir PP-DocLayoutV2
       ```
   - title: 通过识别服务解析文档
@@ -276,6 +297,11 @@ scenarios:
       parser.add_argument('--server-url', default='http://127.0.0.1:8000/v1')
       parser.add_argument('--layout-device', choices=['cpu', 'npu'], default='cpu')
       args = parser.parse_args()
+      if args.layout_device == 'npu':
+          # OpenCV adds its package directory; CANN compiler workers need stdlib first.
+          import sys
+          import sysconfig
+          sys.path.insert(0, sysconfig.get_path('stdlib'))
       if args.layout_device == 'cpu':
           # CPU Paddle preprocessing + the ModelZoo-patched ACL InferSession(0).
           # PP-DocLayoutV2 still runs on NPU; Paddle custom-NPU is not used on 310P.
@@ -394,6 +420,11 @@ scenarios:
       parser.add_argument('--server-url', default='http://127.0.0.1:8000/v1')
       parser.add_argument('--layout-device', choices=['cpu', 'npu'], default='cpu')
       args = parser.parse_args()
+      if args.layout_device == 'npu':
+          # OpenCV adds its package directory; CANN compiler workers need stdlib first.
+          import sys
+          import sysconfig
+          sys.path.insert(0, sysconfig.get_path('stdlib'))
       if args.layout_device == 'cpu':
           # CPU Paddle preprocessing + the ModelZoo-patched ACL InferSession(0).
           # PP-DocLayoutV2 still runs on NPU; Paddle custom-NPU is not used on 310P.
