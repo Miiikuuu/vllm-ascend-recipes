@@ -4,11 +4,11 @@ meta:
   provider: PaddlePaddle
   description: 在昇腾上部署原版 PaddleOCR-VL-0.9B，涵盖单 NPU 服务和结合 PP-DocLayoutV2 的文档解析。
   date_added: '2026-10-12'
-  date_updated: '2026-10-13'
+  date_updated: '2026-10-19'
   difficulty: intermediate
   hardware:
-    atlas_800_a2: verified
-    atlas_300i_duo: verified
+    atlas_800_a2: experimental
+    atlas_300i_duo: experimental
 model:
   model_id: PaddlePaddle/PaddleOCR-VL
   min_vllm_version: 0.11.1
@@ -31,14 +31,16 @@ model:
     TASK_QUEUE_ENABLE: '1'
     PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
   docker_image:
-    atlas_800_a2: quay.io/ascend/vllm-ascend:nightly-main@sha256:6d2aa300863a4145249822c625affbe98ed4f231605789b9118ae137370250f3
-    atlas_300i_duo: quay.io/ascend/vllm-ascend:nightly-main-310p@sha256:3706317b3a91fda5b7b53174d65d97aeb5c762068c8edf96387f0e9f462f9723
+    atlas_800_a2: quay.io/ascend/vllm-ascend:v0.30.0rc2@sha256:6348403a0ebb19f52bc1b7497de1daeb6df0e4650f9051c169e47a011527a6c3
+    atlas_300i_duo: quay.io/ascend/vllm-ascend:v0.30.0rc2-310p@sha256:930dcb52a6d80460d823367356b012e95b18327470cff2bc2b94063b49b5f175
   nightly_required: false
   install:
     pip: false
     docker:
-      note: 2026-10-12 解析并固定官方 main 镜像摘要。A2 的 BF16 图模式及原生 Paddle 版面推理、310P 的 graph/eager/OM 已在真实 NPU 上经完整镜像内容及原始入口、PRoot5.5.0
-        人工实测。原生 Docker 和 nightly CI 未验证。平台原始包环境及独立源码构建分别保留。
+      note: 2026-10-12 的 nightly 摘要已无法解析，现改用按摘要固定的官方 v0.30.0rc2 镜像。
+        2026-10-19 已检查仓库清单和 arm64 配置，新镜像的 NPU 回归仍待执行，因此硬件暂标 experimental。
+        之前 A2 的 BF16 图模式及原生 Paddle 版面推理、310P 的 graph/eager/OM 人工结果来自旧镜像完整内容经 PRoot5.5.0 执行，并非当前替换镜像。
+        这些人工运行未验证原生 Docker 和 nightly CI。
 features:
   cpu_binding:
     label: CPU 绑定
@@ -107,12 +109,18 @@ prerequisites:
   content: 手动执行服务场景前，将 your_model_path 替换为原版权重的本地目录，通常为下载命令使用的
     /root/.cache/modelscope/hub/models/PaddlePaddle/PaddleOCR-VL。仓库 CI 通过 models/_cache_paths.yaml
     解析该占位符，已注册的 cache_dir 为 PaddlePaddle/PaddleOCR-VL。目录必须包含完整原版权重，不能替换为量化版本。
+- title: 镜像验证范围
+  content: 当前命令采用官方 v0.30.0rc2 镜像（vLLM v0.30.0），使用历史结果前须在所选镜像上重跑功能检查。
+    原 A2 索引 SHA256 为 6d2aa300863a4145249822c625affbe98ed4f231605789b9118ae137370250f3（arm64 为
+    eb427a2f888262000dbf0fa53780b140ba2f7df9c9cb65ca3ad468ef591ac55b），原 310P 索引 SHA256 为
+    3706317b3a91fda5b7b53174d65d97aeb5c762068c8edf96387f0e9f462f9723，均在 2026-10-19 返回 MANIFEST_UNKNOWN。
+    这些摘要仅用于识别之前的人工证据；其精度和耗时数据不能证明新镜像已经通过验证。
 - title: 硬件与精度
   content: 在 Atlas 800I A2 或 Atlas 300I DUO 上使用一个逻辑 NPU。实测 HiDevLab 卡为 Ascend 310P3，每个可见设备约 44 GB 显存；环境选择器中的 64
     GB 为主机内存。310P 仅支持 FP16。A2 的 BF16 图模式和 Paddle custom-NPU 文档解析已在910B3/64GiB HBM 上人工实测。
 - title: 运行时版本
   content: 源教程开头记录 v0.21.0rc1，文档宏目前解析为 v0.23.0。本次迁移检查的 main 为 0830899b4e3f55ea6ed9f3518385e9d81192ae29，并独立固定最新发布的
-    main 镜像。310P 的 FULL_DECODE_ONLY 需要 CANN >= 9.0.0；较旧且受支持的 CANN 使用下方 eager 场景。不要为匹配镜像而更换主机驱动。
+    main 镜像；2026-10-19 已将失效的 nightly 摘要改为 v0.30.0rc2 候选发布版摘要。310P 的 FULL_DECODE_ONLY 需要 CANN >= 9.0.0；较旧且受支持的 CANN 使用下方 eager 场景。不要为匹配镜像而更换主机驱动。
 - title: 固定权重身份
   content: 已核验的原版 model.safetensors 大小为 1917255968 字节，SHA256 为 3085f1042e184f68f8a412aa0f64f2c4b8562989598bbfba326aaa11fc685de8。模型声明的
     131072 上下文不代表已经验证的 310P 服务长度；教程使用 16384。
@@ -130,7 +138,7 @@ env_setup:
     A2:
       content: |-
         ```bash
-        export IMAGE='quay.io/ascend/vllm-ascend:nightly-main@sha256:6d2aa300863a4145249822c625affbe98ed4f231605789b9118ae137370250f3'
+        export IMAGE='quay.io/ascend/vllm-ascend:v0.30.0rc2@sha256:6348403a0ebb19f52bc1b7497de1daeb6df0e4650f9051c169e47a011527a6c3'
         docker run --rm --name paddleocr-vl --shm-size=1g --net=host \
             --device /dev/davinci0 --device /dev/davinci_manager \
             --device /dev/devmm_svm --device /dev/hisi_hdc \
@@ -144,7 +152,7 @@ env_setup:
     300I DUO:
       content: |-
         ```bash
-        export IMAGE='quay.io/ascend/vllm-ascend:nightly-main-310p@sha256:3706317b3a91fda5b7b53174d65d97aeb5c762068c8edf96387f0e9f462f9723'
+        export IMAGE='quay.io/ascend/vllm-ascend:v0.30.0rc2-310p@sha256:930dcb52a6d80460d823367356b012e95b18327470cff2bc2b94063b49b5f175'
         docker run --rm --name paddleocr-vl --shm-size=1g --net=host \
             --device /dev/davinci0 --device /dev/davinci_manager \
             --device /dev/devmm_svm --device /dev/hisi_hdc \
@@ -509,7 +517,7 @@ verification: |-
   manifest = []
   for task, (filename, box, expected_hash) in SAMPLES.items():
       source = (args.source_dir or args.output) / filename
-      url = f'https://huggingface.co/datasets/PaddlePaddle/PaddleOCR-VL_demo/resolve/{REVISION}/imgs/{filename}'
+      url = '/'.join(('https://huggingface.co', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', REVISION, 'imgs', filename))
       if not source.exists():
           with urllib.request.urlopen(url, timeout=90) as response:
               source.write_bytes(response.read())

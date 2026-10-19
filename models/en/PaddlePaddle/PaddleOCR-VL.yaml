@@ -5,11 +5,11 @@ meta:
   description: Original PaddleOCR-VL-0.9B document recognition on Ascend, with single-NPU serving and PP-DocLayoutV2
     document parsing.
   date_added: '2026-10-12'
-  date_updated: '2026-10-13'
+  date_updated: '2026-10-19'
   difficulty: intermediate
   hardware:
-    atlas_800_a2: verified
-    atlas_300i_duo: verified
+    atlas_800_a2: experimental
+    atlas_300i_duo: experimental
 model:
   model_id: PaddlePaddle/PaddleOCR-VL
   min_vllm_version: 0.11.1
@@ -32,16 +32,17 @@ model:
     TASK_QUEUE_ENABLE: '1'
     PYTORCH_NPU_ALLOC_CONF: expandable_segments:True
   docker_image:
-    atlas_800_a2: quay.io/ascend/vllm-ascend:nightly-main@sha256:6d2aa300863a4145249822c625affbe98ed4f231605789b9118ae137370250f3
-    atlas_300i_duo: quay.io/ascend/vllm-ascend:nightly-main-310p@sha256:3706317b3a91fda5b7b53174d65d97aeb5c762068c8edf96387f0e9f462f9723
+    atlas_800_a2: quay.io/ascend/vllm-ascend:v0.30.0rc2@sha256:6348403a0ebb19f52bc1b7497de1daeb6df0e4650f9051c169e47a011527a6c3
+    atlas_300i_duo: quay.io/ascend/vllm-ascend:v0.30.0rc2-310p@sha256:930dcb52a6d80460d823367356b012e95b18327470cff2bc2b94063b49b5f175
   nightly_required: false
   install:
     pip: false
     docker:
-      note: Official main images resolved on2026-10-12 and pinned by digest. A2 BF16 graph/native Paddle layout
-        and310P graph/eager/OM were manually run via complete image payload/original entrypoint under PRoot5.5.0
-        on actual NPUs. Normal Docker and nightly CI are untested. The original platform package baselines and independent
-        source build are preserved separately.
+      note: Official v0.30.0rc2 images are pinned by digest after the 2026-10-12 nightly digests stopped resolving.
+        Registry manifests and arm64 configs were checked on 2026-10-19; NPU regression of these replacement images
+        is pending, so hardware is marked experimental. Earlier A2 BF16 graph/native Paddle layout and 310P
+        graph/eager/OM manual results used the old complete image payloads under PRoot5.5.0, not these replacements.
+        Normal Docker and nightly CI were not validated by those manual runs.
 features:
   cpu_binding:
     label: CPU Binding
@@ -113,14 +114,21 @@ prerequisites:
     directory, normally /root/.cache/modelscope/hub/models/PaddlePaddle/PaddleOCR-VL as used by the download commands.
     Repository CI resolves this placeholder through models/_cache_paths.yaml; the registered cache_dir is
     PaddlePaddle/PaddleOCR-VL. The directory must contain the complete original checkpoint, not a quantized variant.
+- title: Image validation scope
+  content: The commands now use official v0.30.0rc2 images (vLLM v0.30.0). Re-run the functional checks on the
+    selected image before relying on historical results. The former A2 index SHA256
+    6d2aa300863a4145249822c625affbe98ed4f231605789b9118ae137370250f3 (arm64
+    eb427a2f888262000dbf0fa53780b140ba2f7df9c9cb65ca3ad468ef591ac55b) and former 310P index SHA256
+    3706317b3a91fda5b7b53174d65d97aeb5c762068c8edf96387f0e9f462f9723 returned MANIFEST_UNKNOWN on 2026-10-19.
+    They identify the earlier manual evidence only; its accuracy and timing measurements do not validate the new images.
 - title: Hardware and precision
   content: Use one logical NPU on Atlas 800I A2 or Atlas 300I DUO. The measured HiDevLab card is Ascend 310P3 with
     about 44 GB per visible device; 64 GB in the environment selector is host RAM. Only FP16 is supported on 310P.
     A2 BF16 graph and Paddle custom-NPU document parsing were manually tested on910B3/64GiB HBM.
 - title: Runtime versions
   content: The source tutorial introduction records v0.21.0rc1 and its documentation macro currently resolves v0.23.0.
-    For this migration, main was inspected at 0830899b4e3f55ea6ed9f3518385e9d81192ae29 and the latest published
-    main images were pinned separately. CANN >= 9.0.0 is required for 310P FULL_DECODE_ONLY; use the eager scenario
+    For the original migration, main was inspected at 0830899b4e3f55ea6ed9f3518385e9d81192ae29. The unavailable
+    nightly image pins were replaced with v0.30.0rc2 release-candidate pins on 2026-10-19. CANN >= 9.0.0 is required for 310P FULL_DECODE_ONLY; use the eager scenario
     below on older supported CANN. Do not replace the host driver to match an image.
 - title: Exact checkpoint
   content: The verified original model.safetensors is 1917255968 bytes with SHA256 3085f1042e184f68f8a412aa0f64f2c4b8562989598bbfba326aaa11fc685de8.
@@ -143,7 +151,7 @@ env_setup:
     A2:
       content: |-
         ```bash
-        export IMAGE='quay.io/ascend/vllm-ascend:nightly-main@sha256:6d2aa300863a4145249822c625affbe98ed4f231605789b9118ae137370250f3'
+        export IMAGE='quay.io/ascend/vllm-ascend:v0.30.0rc2@sha256:6348403a0ebb19f52bc1b7497de1daeb6df0e4650f9051c169e47a011527a6c3'
         docker run --rm --name paddleocr-vl --shm-size=1g --net=host \
             --device /dev/davinci0 --device /dev/davinci_manager \
             --device /dev/devmm_svm --device /dev/hisi_hdc \
@@ -157,7 +165,7 @@ env_setup:
     300I DUO:
       content: |-
         ```bash
-        export IMAGE='quay.io/ascend/vllm-ascend:nightly-main-310p@sha256:3706317b3a91fda5b7b53174d65d97aeb5c762068c8edf96387f0e9f462f9723'
+        export IMAGE='quay.io/ascend/vllm-ascend:v0.30.0rc2-310p@sha256:930dcb52a6d80460d823367356b012e95b18327470cff2bc2b94063b49b5f175'
         docker run --rm --name paddleocr-vl --shm-size=1g --net=host \
             --device /dev/davinci0 --device /dev/davinci_manager \
             --device /dev/devmm_svm --device /dev/hisi_hdc \
@@ -523,7 +531,7 @@ verification: |-
   manifest = []
   for task, (filename, box, expected_hash) in SAMPLES.items():
       source = (args.source_dir or args.output) / filename
-      url = f'https://huggingface.co/datasets/PaddlePaddle/PaddleOCR-VL_demo/resolve/{REVISION}/imgs/{filename}'
+      url = '/'.join(('https://huggingface.co', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', REVISION, 'imgs', filename))
       if not source.exists():
           with urllib.request.urlopen(url, timeout=90) as response:
               source.write_bytes(response.read())
