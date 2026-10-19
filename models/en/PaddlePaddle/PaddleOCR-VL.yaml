@@ -98,16 +98,21 @@ weight_download:
     url: https://www.modelscope.cn/models/PaddlePaddle/PaddleOCR-VL
     command: |-
       ```bash
-      modelscope download --model PaddlePaddle/PaddleOCR-VL --local_dir PaddleOCR-VL
-      sha256sum PaddleOCR-VL/model.safetensors
+      modelscope download --model PaddlePaddle/PaddleOCR-VL --local_dir /root/.cache/modelscope/hub/models/PaddlePaddle/PaddleOCR-VL
+      sha256sum /root/.cache/modelscope/hub/models/PaddlePaddle/PaddleOCR-VL/model.safetensors
       ```
   - source: HuggingFace
     url: https://huggingface.co/PaddlePaddle/PaddleOCR-VL
     command: |-
       ```bash
-      hf download PaddlePaddle/PaddleOCR-VL --revision 7fa00a8c55b735ba51ba49a9058f3f9c57a99a11 --local-dir PaddleOCR-VL
+      hf download PaddlePaddle/PaddleOCR-VL --revision 7fa00a8c55b735ba51ba49a9058f3f9c57a99a11 --local-dir /root/.cache/modelscope/hub/models/PaddlePaddle/PaddleOCR-VL
       ```
 prerequisites:
+- title: Local weight path
+  content: Before running a serving scenario manually, replace your_model_path with the local original checkpoint
+    directory, normally /root/.cache/modelscope/hub/models/PaddlePaddle/PaddleOCR-VL as used by the download commands.
+    Repository CI resolves this placeholder through models/_cache_paths.yaml; the registered cache_dir is
+    PaddlePaddle/PaddleOCR-VL. The directory must contain the complete original checkpoint, not a quantized variant.
 - title: Hardware and precision
   content: Use one logical NPU on Atlas 800I A2 or Atlas 300I DUO. The measured HiDevLab card is Ascend 310P3 with
     about 44 GB per visible device; 64 GB in the environment selector is host RAM. Only FP16 is supported on 310P.
@@ -181,7 +186,7 @@ scenarios:
       export CPU_AFFINITY_CONF=1
       export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 
-      vllm serve PaddlePaddle/PaddleOCR-VL \
+      vllm serve your_model_path \
           --max-num-batched-tokens 16384 \
           --gpu-memory-utilization 0.80 \
           --served-model-name PaddlePaddle/PaddleOCR-VL PaddleOCR-VL-0.9B \
@@ -211,7 +216,7 @@ scenarios:
       export TASK_QUEUE_ENABLE=1
       export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 
-      vllm serve PaddlePaddle/PaddleOCR-VL \
+      vllm serve your_model_path \
           --max-model-len 16384 \
           --served-model-name PaddlePaddle/PaddleOCR-VL PaddleOCR-VL-0.9B \
           --trust-remote-code \
@@ -243,7 +248,7 @@ scenarios:
       export TASK_QUEUE_ENABLE=1
       export PYTORCH_NPU_ALLOC_CONF=expandable_segments:True
 
-      vllm serve PaddlePaddle/PaddleOCR-VL \
+      vllm serve your_model_path \
           --max-model-len 16384 \
           --served-model-name PaddlePaddle/PaddleOCR-VL PaddleOCR-VL-0.9B \
           --trust-remote-code \
