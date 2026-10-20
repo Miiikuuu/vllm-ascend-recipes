@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -250,7 +251,7 @@ class RecipeWorkflowLoopTests(unittest.TestCase):
         step = next(s for s in workflow["jobs"]["recipe-verify"]["steps"] if s.get("name") == "Verify recipes")
         # Exercise the real loop after CANN setup, with a verifier double that
         # returns the documented exit codes. Never start an NPU server here.
-        loop = "mkdir -p" + step["run"].split("mkdir -p", 1)[1]
+        loop = step["run"].replace(". /usr/local/Ascend/ascend-toolkit/set_env.sh", "true")
         for name, expected_rc, expected_status in [("skip", 0, "skip"), ("fail", 1, "fail")]:
             with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -261,7 +262,12 @@ class RecipeWorkflowLoopTests(unittest.TestCase):
                 )
                 (root / "recipe_list.txt").write_text(f"{name}.yaml\npass.yaml\n", encoding="utf-8", newline="\n")
                 script = 'export PATH="/usr/bin:/bin:$PATH"\n' + loop.replace("/tmp/", "./")
-                result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                entry = root / "verify-step.sh"
+                entry.write_text(script, encoding="utf-8", newline="\n")
+                # Do not add shell flags absent from production: that hid the
+                # tee pipeline swallowing the verifier's failure exit code.
+                shell = shlex.split(workflow["defaults"]["run"]["shell"])
+                result = subprocess.run([part.replace("{0}", str(entry)) for part in shell],
                                         cwd=root, text=True, capture_output=True)
                 self.assertEqual(result.returncode, expected_rc, result.stderr)
                 status = root / "verify-results" / f"{name}.status"

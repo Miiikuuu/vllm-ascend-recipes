@@ -127,6 +127,7 @@ jobs:
           STARTED_AT_ISO: ${{ inputs.started_at_iso }}
         run: |
           . /usr/local/Ascend/ascend-toolkit/set_env.sh
+          set -euo pipefail
           mkdir -p /tmp/verify-logs /tmp/verify-results
           PASSED=0
           FAILED=0
