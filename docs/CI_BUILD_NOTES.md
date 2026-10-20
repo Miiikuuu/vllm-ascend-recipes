@@ -39,7 +39,9 @@ multi_node: []
 
 手动运行 `Nightly Recipe Verify` 时，默认使用上述单机名单。临时验证其他模型可填写 `recipe_allowlist`（英文路径、逗号分隔），不需要登记名单；`hardware_filter` 可限制硬件。`full_run` 则扫描全部英文 recipe，显式填写的 `recipe_allowlist` 优先。手动运行 `Multi-node framework` 默认使用多机名单，也可用 `target_ids` 临时指定已有目标。这些输入均不影响 PR，PR 审批时无需填写。
 
-单机镜像优先读取 recipe 的 `model.docker_image`，已知的 0.23 同标签公共镜像映射到现有 SWR 镜像；新标签和 digest 不降级。nightly 单项也可以写成 `{recipe: 路径, image: 镜像}` 覆盖已知 CI 环境，手动镜像输入优先级最高。同硬件不同镜像拆为独立任务，避免覆盖产物或互相取消。
+单机镜像优先读取 recipe 的 `model.docker_image`；nightly 单项也可以写成 `{recipe: 路径, image: 镜像}` 覆盖已知 CI 环境，手动镜像输入优先级最高。选择完成后，PR、nightly 和手动运行统一将 `quay.io/` 前缀换为 `quay.nju.edu.cn/`，保留仓库路径、tag、digest 和硬件后缀，不改 recipe 或页面展示的原始地址。原先仅针对部分 0.23 标签的 Quay→SWR 转换由此统一规则替代；显式 SWR、GHCR、NJU 等其他地址及未声明镜像时的 SWR 默认值不变。镜像源说明见 [NJU Quay 文档](https://doc.nju.edu.cn/books/e1654/page/quay)。
+
+镜像转换在按硬件/镜像分组之前执行，同一 Quay 镜像及其 NJU 地址会合并到同一任务；状态记录使用实际执行的 NJU 地址。NJU 不可用时会按现有容器初始化机制报错，不自动切换镜像版本或关闭 TLS 校验。缓存命中和网络链路会影响下载速度，不保证固定加速比例。多机当前固定使用 SWR，不受此单机规划规则影响。
 
 权重不自动下载。容器内标准目录为 `/root/.cache/modelscope/hub/models/<org>/<name>`，与 `model.model_id` 一致且存在 `config.json` 时，新 recipe 不需要登记别名。自定义、量化或按硬件区分的目录继续由 `models/_cache_paths.yaml` 映射，已有别名优先。审批前确认权重已预置；缺失时明确跳过，不算通过。A5 沿用宿主机 `/mnt/weight` 到 `/root/.cache` 的挂载；实际挂载仍需集群环境验证。
 
@@ -69,7 +71,7 @@ python .github/_scripts/verification_plan.py --trigger manual \
 
 | # | 问题 | 原因 | 解决 |
 |---|------|------|------|
-| 1 | `quay.io/ascend/vllm-ascend` 拉不到 | CI 集群网络不通 quay.io | 改用 `swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:v0.23.0rc1` |
+| 1 | Quay 镜像拉取慢或不可达 | 节点到仓库的网络或缓存未命中 | 单机计划默认将 `quay.io/` 转换为 `quay.nju.edu.cn/`；检查节点到 NJU 的连通性，必要时显式指定已核验的同版本 SWR 镜像，不降级版本 |
 | 2 | SWR `:latest` 标签实际指向 vllm 0.11.0 | latest 标签未更新，不支持 `--tokenizer-mode deepseek_v4` | 显式指定 `v0.23.0rc1` 标签 |
 | 3 | CANN 镜像 `pip install vllm vllm-ascend` 后 `vllm` CLI 找不到 | vllm 模块可 `import` 但二进制不在 `PATH` | `hash -r` + `export PATH="/usr/local/bin:/root/.local/bin:$PATH"`；或创建 `/usr/local/bin/vllm` wrapper 脚本 |
 | 4 | `pip install ais_bench_benchmark` SSL 证书错误 | 未配 pip 内部镜像，直连 PyPI 失败 | 先执行 `pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple` |

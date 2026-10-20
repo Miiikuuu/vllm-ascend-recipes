@@ -107,7 +107,56 @@ class VerificationPlanTests(unittest.TestCase):
         value["model"]["docker_image"] = {"ascend_950dt": "quay.io/ascend/vllm-ascend:v0.30.0rc2-a5"}
         self.write(path, value)
         jobs = build_plan(self.root, "pr", changed_files=[path])["include"]
-        self.assertEqual(jobs[0]["image"], "quay.io/ascend/vllm-ascend:v0.30.0rc2-a5")
+        self.assertEqual(jobs[0]["image"], "quay.nju.edu.cn/ascend/vllm-ascend:v0.30.0rc2-a5")
+
+    def test_quay_mirror_preserves_tags_and_digests_for_every_hardware(self):
+        for family, key, npu, suffix in [
+            ("a2", "atlas_800_a2", "Atlas 800I A2", ""),
+            ("a3", "atlas_800_a3", "Atlas 800I A3", "-a3"),
+            ("a5", "ascend_950dt", "Ascend 950DT", "-a5"),
+        ]:
+            for reference in (":v0.23.0" + suffix, ":v0.30.0rc2" + suffix,
+                              "@sha256:" + "a" * 64):
+                with self.subTest(family=family, reference=reference):
+                    path = self.recipe(scenarios=[scenario(npu)], hardware={key: "verified"})
+                    value = yaml.safe_load((self.root / path).read_text(encoding="utf-8"))
+                    value["model"]["docker_image"] = {key: "quay.io/ascend/vllm-ascend" + reference}
+                    self.write(path, value)
+                    jobs = build_plan(self.root, "pr", changed_files=[path])["include"]
+                    self.assertEqual(len(jobs), 1)
+                    self.assertEqual(jobs[0]["hardware"], family)
+                    self.assertEqual(jobs[0]["image"], "quay.nju.edu.cn/ascend/vllm-ascend" + reference)
+                    self.assertEqual(yaml.safe_load((self.root / path).read_text())["model"], value["model"])
+
+    def test_nightly_and_manual_image_overrides_use_the_same_quay_mirror(self):
+        path = self.recipe()
+        upstream = "quay.io/other/project:v1"
+        self.write(".github/nightly-recipes.yaml", {"a5": [{"recipe": path, "image": upstream}]})
+        for trigger, overrides in [("nightly", {}), ("manual", {"a5": upstream})]:
+            with self.subTest(trigger=trigger):
+                jobs = build_plan(self.root, trigger, images=overrides)["include"]
+                self.assertEqual(jobs[0]["image"], "quay.nju.edu.cn/other/project:v1")
+
+    def test_non_quay_images_are_not_rewritten(self):
+        path = self.recipe()
+        for image in ("swr.example/ascend:v1", "ghcr.io/org/project:v1", "docker.io/org/project:v1",
+                      "quay.nju.edu.cn/org/project:v1", "quay.io.example/org/project:v1",
+                      "example.com/quay.io/project:v1"):
+            with self.subTest(image=image):
+                self.write(".github/nightly-recipes.yaml", {"a5": [{"recipe": path, "image": image}]})
+                jobs = build_plan(self.root, "nightly")["include"]
+                self.assertEqual(jobs[0]["image"], image)
+
+    def test_quay_and_nju_references_group_into_the_same_hardware_image_job(self):
+        a, b = self.recipe(), self.recipe("models/en/Other/model.yaml")
+        for path, registry in [(a, "quay.io"), (b, "quay.nju.edu.cn")]:
+            value = yaml.safe_load((self.root / path).read_text(encoding="utf-8"))
+            value["model"]["docker_image"] = registry + "/ascend/vllm-ascend:v0.30.0rc2-a5"
+            self.write(path, value)
+        jobs = build_plan(self.root, "pr", changed_files=[a, b])["include"]
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(json.loads(jobs[0]["recipe_files"]), [a, b])
+        self.assertEqual(jobs[0]["image"], "quay.nju.edu.cn/ascend/vllm-ascend:v0.30.0rc2-a5")
 
     def test_different_recipe_images_on_same_hardware_have_independent_jobs(self):
         a, b = self.recipe(), self.recipe("models/en/Other/model.yaml")

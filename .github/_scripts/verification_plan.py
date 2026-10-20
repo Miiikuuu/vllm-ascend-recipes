@@ -26,11 +26,6 @@ def recipe_image(recipe: dict, family: str, trigger: str) -> str:
     declared = recipe.get("model", {}).get("docker_image")
     image = declared.get(HARDWARE[family][0]) if isinstance(declared, dict) else declared
     if image:
-        # Only known, same-tag mirrors. Digests and newer tags remain intact.
-        public = "quay.io/ascend/vllm-ascend:"
-        known = {"v0.23.0rc1", "v0.23.0", "v0.23.0-a3", "v0.23.0-a5"}
-        if image.startswith(public) and image.removeprefix(public) in known:
-            return IMAGE_BASE + image.removeprefix(public)
         return image
     version = "v0.23.0rc1" if trigger == "pr" and family == "a2" else "v0.23.0"
     return IMAGE_BASE + version + ("" if family == "a2" else f"-{family}")
@@ -134,6 +129,10 @@ def build_plan(root: Path, trigger: str, *, changed_files: list[str] | None = No
                      or recipe_image(recipes[name], family, trigger))
             if not isinstance(image, str) or re.search(r"\s", image) or not re.search(r"[:@]", image):
                 raise ValueError(f"invalid or unpinned container image for {name}: {image!r}")
+            # Apply CI transport policy after all overrides, before grouping.
+            # Preserve the repository, tag/digest and hardware-specific suffix.
+            if image.startswith("quay.io/"):
+                image = "quay.nju.edu.cn/" + image.removeprefix("quay.io/")
             image_groups.setdefault(image, []).append(name)
         if hardware_filter not in {"all", family}:
             continue
