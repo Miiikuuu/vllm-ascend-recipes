@@ -446,24 +446,6 @@
           "pr_author": null
         },
         {
-          "kind": "pr",
-          "status": "pass",
-          "conclusion": "success",
-          "head_sha": "d4011d64313c5f39299abb62093d892e634b3a33",
-          "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/d4011d64313c5f39299abb62093d892e634b3a33",
-          "workflow_run_id": 33584255360,
-          "workflow_run_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/33584255360",
-          "recipe_path": "models/en/Qwen/Qwen3-30B-A3B.yaml",
-          "recipe_yaml_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/blob/d4011d64313c5f39299abb62093d892e634b3a33/models/en/Qwen/Qwen3-30B-A3B.yaml",
-          "params_url": "https://vllm-ascend.github.io/vllm-ascend-recipes/runs/d4011d64313c5f39299abb62093d892e634b3a33/Qwen3-30B-A3B.params.json",
-          "started_at": "2026-09-02T02:43:05Z",
-          "finished_at": "2026-09-02T02:58:39Z",
-          "pr_number": 91,
-          "pr_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/pull/91",
-          "pr_title": "test(ci): retrigger Qwen3-30B-A3B verification",
-          "pr_author": "chaosv598"
-        },
-        {
           "kind": "nightly",
           "status": "pass",
           "conclusion": "failure",
@@ -1862,6 +1844,57 @@
           "pr_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/pull/60",
           "pr_title": "feat(ci): validate multi-node recipe semantics in pnpm validate",
           "pr_author": "chaosv598"
+        }
+      ]
+    },
+    "qwen3-30b-a3b-a3-w8a8-single-node-multi-card": {
+      "test_id": null,
+      "selector": {
+        "npu": "Atlas 800I A3",
+        "precision": "W8A8",
+        "deployment": "Single-Node",
+        "case": "Single Node Multi Card"
+      },
+      "runner": "linux-aarch64-a3-800i-16-cn12-001",
+      "mode": "single-node",
+      "last_pr_run": null,
+      "last_nightly_run": {
+        "kind": "nightly",
+        "status": "pass",
+        "conclusion": "success",
+        "head_sha": "2b65e9c477195e7de92da3acf254d8d56361bd2a",
+        "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/2b65e9c477195e7de92da3acf254d8d56361bd2a",
+        "workflow_run_id": 39331407613,
+        "workflow_run_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39331407613",
+        "recipe_path": "models/en/Qwen/Qwen3-30B-A3B.yaml",
+        "recipe_yaml_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/blob/2b65e9c477195e7de92da3acf254d8d56361bd2a/models/en/Qwen/Qwen3-30B-A3B.yaml",
+        "params_url": "https://vllm-ascend.github.io/vllm-ascend-recipes/runs/2b65e9c477195e7de92da3acf254d8d56361bd2a/Qwen3-30B-A3B.params.json",
+        "started_at": "2026-10-19T22:00:23Z",
+        "finished_at": "2026-10-19T22:25:56Z",
+        "pr_number": null,
+        "pr_url": null,
+        "pr_title": null,
+        "pr_author": null
+      },
+      "last_manual_run": null,
+      "history": [
+        {
+          "kind": "nightly",
+          "status": "pass",
+          "conclusion": "success",
+          "head_sha": "2b65e9c477195e7de92da3acf254d8d56361bd2a",
+          "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/2b65e9c477195e7de92da3acf254d8d56361bd2a",
+          "workflow_run_id": 39331407613,
+          "workflow_run_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39331407613",
+          "recipe_path": "models/en/Qwen/Qwen3-30B-A3B.yaml",
+          "recipe_yaml_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/blob/2b65e9c477195e7de92da3acf254d8d56361bd2a/models/en/Qwen/Qwen3-30B-A3B.yaml",
+          "params_url": "https://vllm-ascend.github.io/vllm-ascend-recipes/runs/2b65e9c477195e7de92da3acf254d8d56361bd2a/Qwen3-30B-A3B.params.json",
+          "started_at": "2026-10-19T22:00:23Z",
+          "finished_at": "2026-10-19T22:25:56Z",
+          "pr_number": null,
+          "pr_url": null,
+          "pr_title": null,
+          "pr_author": null
         }
       ]
     }

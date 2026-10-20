@@ -1,9 +1,26 @@
 {
   "model": "GLM-5",
-  "last_pr_run": null,
+  "last_pr_run": {
+    "kind": "pr",
+    "status": "unknown",
+    "conclusion": "failure",
+    "head_sha": "c928bc07c779aa92eec83788fcedfd6f9642f48e",
+    "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/c928bc07c779aa92eec83788fcedfd6f9642f48e",
+    "workflow_run_id": 39361611972,
+    "workflow_run_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39361611972",
+    "recipe_path": "models/en/THUDM/GLM-5.yaml",
+    "recipe_yaml_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/blob/c928bc07c779aa92eec83788fcedfd6f9642f48e/models/en/THUDM/GLM-5.yaml",
+    "params_url": "https://vllm-ascend.github.io/vllm-ascend-recipes/runs/c928bc07c779aa92eec83788fcedfd6f9642f48e/GLM-5.params.json",
+    "started_at": "2026-10-20T02:56:18Z",
+    "finished_at": "2026-10-20T03:41:00Z",
+    "pr_number": null,
+    "pr_url": null,
+    "pr_title": null,
+    "pr_author": null
+  },
   "last_nightly_run": {
     "kind": "nightly",
-    "status": "pass",
+    "status": "fail",
     "conclusion": "success",
     "head_sha": "2b65e9c477195e7de92da3acf254d8d56361bd2a",
     "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/2b65e9c477195e7de92da3acf254d8d56361bd2a",
@@ -17,7 +34,9 @@
     "pr_number": null,
     "pr_url": null,
     "pr_title": null,
-    "pr_author": null
+    "pr_author": null,
+    "verification_note": "Task validation failed: null content and length-truncated reasoning; the wrapper incorrectly recorded pass.",
+    "verification_evidence_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39331407613/job/118330365890"
   },
   "last_manual_run": null,
   "targets": {
@@ -31,10 +50,27 @@
       },
       "runner": "linux-aarch64-a5-8",
       "mode": "single-node",
-      "last_pr_run": null,
+      "last_pr_run": {
+        "kind": "pr",
+        "status": "pass",
+        "conclusion": "failure",
+        "head_sha": "c928bc07c779aa92eec83788fcedfd6f9642f48e",
+        "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/c928bc07c779aa92eec83788fcedfd6f9642f48e",
+        "workflow_run_id": 39361611972,
+        "workflow_run_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39361611972",
+        "recipe_path": "models/en/THUDM/GLM-5.yaml",
+        "recipe_yaml_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/blob/c928bc07c779aa92eec83788fcedfd6f9642f48e/models/en/THUDM/GLM-5.yaml",
+        "params_url": "https://vllm-ascend.github.io/vllm-ascend-recipes/runs/c928bc07c779aa92eec83788fcedfd6f9642f48e/GLM-5.params.json",
+        "started_at": "2026-10-20T02:56:18Z",
+        "finished_at": "2026-10-20T03:41:00Z",
+        "pr_number": null,
+        "pr_url": null,
+        "pr_title": null,
+        "pr_author": null
+      },
       "last_nightly_run": {
         "kind": "nightly",
-        "status": "pass",
+        "status": "fail",
         "conclusion": "success",
         "head_sha": "2b65e9c477195e7de92da3acf254d8d56361bd2a",
         "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/2b65e9c477195e7de92da3acf254d8d56361bd2a",
@@ -48,13 +84,33 @@
         "pr_number": null,
         "pr_url": null,
         "pr_title": null,
-        "pr_author": null
+        "pr_author": null,
+        "verification_note": "Task validation failed: null content and length-truncated reasoning; the wrapper incorrectly recorded pass.",
+        "verification_evidence_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39331407613/job/118330365890"
       },
       "last_manual_run": null,
       "history": [
         {
-          "kind": "nightly",
+          "kind": "pr",
           "status": "pass",
+          "conclusion": "failure",
+          "head_sha": "c928bc07c779aa92eec83788fcedfd6f9642f48e",
+          "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/c928bc07c779aa92eec83788fcedfd6f9642f48e",
+          "workflow_run_id": 39361611972,
+          "workflow_run_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39361611972",
+          "recipe_path": "models/en/THUDM/GLM-5.yaml",
+          "recipe_yaml_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/blob/c928bc07c779aa92eec83788fcedfd6f9642f48e/models/en/THUDM/GLM-5.yaml",
+          "params_url": "https://vllm-ascend.github.io/vllm-ascend-recipes/runs/c928bc07c779aa92eec83788fcedfd6f9642f48e/GLM-5.params.json",
+          "started_at": "2026-10-20T02:56:18Z",
+          "finished_at": "2026-10-20T03:41:00Z",
+          "pr_number": null,
+          "pr_url": null,
+          "pr_title": null,
+          "pr_author": null
+        },
+        {
+          "kind": "nightly",
+          "status": "fail",
           "conclusion": "success",
           "head_sha": "2b65e9c477195e7de92da3acf254d8d56361bd2a",
           "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/2b65e9c477195e7de92da3acf254d8d56361bd2a",
@@ -68,11 +124,13 @@
           "pr_number": null,
           "pr_url": null,
           "pr_title": null,
-          "pr_author": null
+          "pr_author": null,
+          "verification_note": "Task validation failed: null content and length-truncated reasoning; the wrapper incorrectly recorded pass.",
+          "verification_evidence_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39331407613/job/118330365890"
         },
         {
           "kind": "nightly",
-          "status": "pass",
+          "status": "fail",
           "conclusion": "success",
           "head_sha": "9f487ac4926823a46c1196702129608449af6202",
           "head_sha_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/commit/9f487ac4926823a46c1196702129608449af6202",
@@ -86,7 +144,9 @@
           "pr_number": 113,
           "pr_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/pull/113",
           "pr_title": "[CI] Auto-discover PR single-node checks and configure nightly targets",
-          "pr_author": "chaosv598"
+          "pr_author": "chaosv598",
+          "verification_note": "Task validation failed: no final answer within the request token budget.",
+          "verification_evidence_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/actions/runs/39197394594/job/117883078259"
         },
         {
           "kind": "nightly",
