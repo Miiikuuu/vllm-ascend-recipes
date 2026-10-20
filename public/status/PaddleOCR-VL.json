@@ -12,7 +12,7 @@
     "recipe_yaml_url": "https://github.com/vllm-ascend/vllm-ascend-recipes/blob/cbd5eda0aca6434a9433fbb0702d63b55d28b516/models/en/PaddlePaddle/PaddleOCR-VL.yaml",
     "params_url": "https://vllm-ascend.github.io/vllm-ascend-recipes/runs/cbd5eda0aca6434a9433fbb0702d63b55d28b516/PaddleOCR-VL.params.json",
     "started_at": "2026-10-20T01:42:57Z",
-    "finished_at": "2026-10-20T04:21:43Z",
+    "finished_at": "2026-10-20T07:40:18Z",
     "pr_number": null,
     "pr_url": null,
     "pr_title": null,
