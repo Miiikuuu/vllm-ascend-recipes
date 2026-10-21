@@ -20,8 +20,14 @@ HARDWARE = {
     "a5": ("ascend_950dt", r"\b950DT\b"),
 }
 
-# hardware_key -> env_setup.container section that documents the device mounts.
-CONTAINER_SECTION = {"atlas_800_a2": "A2", "atlas_800_a3": "A3", "ascend_950dt": "A5"}
+# hardware_key -> env_setup.container section keys that document the device
+# mounts. Recipes spell the same family inconsistently: the short "A2",
+# the display form "Atlas 800 A2", and the raw hardware key "atlas_800_a2".
+CONTAINER_SECTIONS = {
+    "atlas_800_a2": ("A2", "Atlas 800 A2", "atlas_800_a2"),
+    "atlas_800_a3": ("A3", "Atlas 800 A3", "atlas_800_a3"),
+    "ascend_950dt": ("A5", "Ascend 950DT", "ascend_950dt"),
+}
 
 # Required NPU count -> self-hosted runner label per family. A recipe is
 # dispatched to the smallest runner that fits its declared device mounts,
@@ -51,13 +57,17 @@ RUNNERS = {
 
 def required_cards(recipe: dict, hardware_key: str) -> int:
     """Count the NPUs a recipe declares via its env_setup container mounts."""
-    section = CONTAINER_SECTION.get(hardware_key)
-    content = ""
-    if section:
-        content = recipe.get("env_setup", {}).get("container", {}).get(section, {}).get("content", "")
-    if not isinstance(content, str):
+    container = recipe.get("env_setup", {}).get("container", {})
+    if not isinstance(container, dict):
         return 0
-    return len(re.findall(r"--device[\s=]+/dev/davinci\d+", content))
+    for section in CONTAINER_SECTIONS.get(hardware_key, ()):
+        block = container.get(section)
+        if not isinstance(block, dict):
+            continue
+        content = block.get("content", "")
+        if isinstance(content, str):
+            return len(re.findall(r"--device[\s=]+/dev/davinci\d+", content))
+    return 0
 
 
 def pick_runner(family: str, cards: int) -> str:

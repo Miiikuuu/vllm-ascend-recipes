@@ -202,6 +202,18 @@ class VerificationPlanTests(unittest.TestCase):
         jobs = build_plan(self.root, "pr", changed_files=[one, eight])["include"]
         self.assertEqual({j["runner"] for j in jobs}, {"linux-aarch64-a2b4-2", "linux-aarch64-a2b4-8"})
 
+    def test_env_setup_section_key_spellings_are_all_recognized(self):
+        paths = []
+        for i, section_key in enumerate(("A2", "Atlas 800 A2", "atlas_800_a2")):
+            path = self.recipe(f"models/en/New/model{i}.yaml", scenarios=[scenario("Atlas 800I A2")])
+            value = yaml.safe_load((self.root / path).read_text(encoding="utf-8"))
+            value["env_setup"] = {"container": {section_key: {"content":
+                "docker run --device /dev/davinci0 --device /dev/davinci1 -it image bash"}}}
+            self.write(path, value)
+            paths.append(path)
+        jobs = build_plan(self.root, "pr", changed_files=paths)["include"]
+        self.assertEqual({j["runner"] for j in jobs}, {"linux-aarch64-a2b4-2"})
+
     def test_shell_comments_with_inline_backticks_do_not_hide_real_serve_command(self):
         path = "models/en/MoonshotAI/Kimi-K2.6.yaml"
         jobs = build_plan(ROOT, "pr", changed_files=[path])["include"]
