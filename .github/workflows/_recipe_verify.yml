@@ -104,6 +104,8 @@ jobs:
           pip config set global.index-url http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
           pip config set global.trusted-host cache-service.nginx-pypi-cache.svc.cluster.local
           pip install ais_bench_benchmark 2>&1 | tail -5 || echo "benchmark install skipped"
+          # AISBench requires NumPy < 2; PyArrow 26 requires NumPy >= 2 at runtime.
+          pip install pyarrow==25.0.0 -i https://mirrors.nju.edu.cn/pypi/web/simple
 
       - name: Write recipe file list
         env:

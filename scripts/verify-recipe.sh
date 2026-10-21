@@ -209,10 +209,15 @@ for s in scenarios:
         bash_content = bash_content.replace('your_model_path', CACHE_PATH)
         # The cache is offline. Resolve the recipe's literal hub ID too,
         # without accidentally replacing --served-model-name or curl payloads.
-        bash_content = re.sub(r'(\bvllm\s+serve\s+)([\'\"]?)' + re.escape(model_id_for_path) + r'\2(?=\s|$)',
-                              lambda m: m.group(1) + shlex.quote(CACHE_PATH), bash_content)
-        bash_content = re.sub(r'(?m)^(\s*(?:export\s+)?MODEL_PATH=)([\'\"]?)' + re.escape(model_id_for_path) + r'\2(?=\s|$)',
-                              lambda m: m.group(1) + shlex.quote(CACHE_PATH), bash_content)
+        # Quantized scenarios can name the configured cache alias rather than
+        # model.model_id (e.g. Eco-Tech/Qwen3.6-27B-w8a8-mxfp8).
+        # Only rewrite known identities; never replace served names or payloads.
+        identities = {model_id_for_path, cache_dir, os.path.relpath(CACHE_PATH, CACHE_BASE)}
+        for identity in sorted(identities, key=len, reverse=True):
+            bash_content = re.sub(r'(\bvllm\s+serve\s+)([\'\"]?)' + re.escape(identity) + r'\2(?=\s|$)',
+                                  lambda m: m.group(1) + shlex.quote(CACHE_PATH), bash_content)
+            bash_content = re.sub(r'(?m)^(\s*(?:export\s+)?MODEL_PATH=)([\'\"]?)' + re.escape(identity) + r'\2(?=\s|$)',
+                                  lambda m: m.group(1) + shlex.quote(CACHE_PATH), bash_content)
         # Resolve {{name}} config/feature placeholders (mirrors the page)
         bash_content = resolve_placeholders(bash_content, data)
         # Remove speculative-config lines (contain placeholder paths)
@@ -226,12 +231,18 @@ for s in scenarios:
         # this scenario's vllm serve command.
         port_match = re.search(r'--port\s+(\d+)', serve_cmd)
         server_port = port_match.group(1) if port_match else '8000'
+        # A variant's explicit inference request supersedes a shared example
+        # for another served model. Readiness-only checks never suppress tasks.
+        has_local_task = any(re.search(
+            r'/(?:v1/(?:chat/completions|completions|embeddings|audio/transcriptions|score|rerank)|score|rerank)\b',
+            cmd) for cmd in verify_cmds)
+        checks = verify_cmds if has_local_task else verify_cmds + global_verify_cmds
         verify_cmds = [
             cmd.replace('<node0_ip>', 'localhost')
                .replace('<node_ip>', 'localhost')
                .replace('<server_ip>', 'localhost')
                .replace('<port>', server_port)
-            for cmd in verify_cmds + global_verify_cmds
+            for cmd in checks
         ]
         
         commands.append({

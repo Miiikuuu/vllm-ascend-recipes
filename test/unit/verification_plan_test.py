@@ -281,12 +281,73 @@ class RecipeParserTests(unittest.TestCase):
         self.assertEqual(result["action"], "verify")
         self.assertIn("Example/model", result["cache_path"].replace("\\", "/"))
 
+    def test_model_path_alias_uses_the_resolved_offline_directory(self):
+        item = scenario()
+        item["steps"][0]["content"] = (
+            "```bash\nexport MODEL_PATH=model\n"
+            "vllm serve $MODEL_PATH --served-model-name model --port 8123\n```"
+        )
+        result = self.parse([item])
+        command = result["scenarios"][0]["serve_cmd"]
+        self.assertIn("MODEL_PATH=" + shlex.quote(result["cache_path"]), command)
+        self.assertIn("--served-model-name model", command)
+
+    def test_literal_cache_alias_is_resolved_without_rewriting_request_names(self):
+        item = scenario()
+        item["steps"][0]["content"] = (
+            "```bash\nvllm serve model --served-model-name model --port 8123\n```"
+        )
+        result = self.parse([item])
+        command = result["scenarios"][0]["serve_cmd"]
+        self.assertIn("vllm serve " + shlex.quote(result["cache_path"]), command)
+        self.assertIn("--served-model-name model", command)
+
     def test_log_example_does_not_hide_later_global_request(self):
         verification = "```bash\nINFO: Server ready\n```\n```bash\ncurl http://<node_ip>:<port>/v1/embeddings\n```"
         result = self.parse([scenario()], verification=verification, tasks=["embedding"])
         checks = result["scenarios"][0]["verify_cmds"]
         self.assertEqual(checks, ["curl http://localhost:8123/v1/embeddings"])
         self.assertFalse(result["scenarios"][0]["benchmark_chat"])
+
+    def test_scenario_task_check_overrides_global_request_for_another_variant(self):
+        item = scenario()
+        item["steps"].append({"content": "```bash\ncurl http://<server_ip>:<port>/v1/chat/completions -d '{\"model\":\"a5-model\"}'\n```"})
+        global_check = "```bash\ncurl http://<server_ip>:<port>/v1/chat/completions -d '{\"model\":\"a2-model\"}'\n```"
+        result = self.parse([item], verification=global_check)
+        checks = result["scenarios"][0]["verify_cmds"]
+        self.assertEqual(len(checks), 1)
+        self.assertIn('"model":"a5-model"', checks[0])
+
+    def test_local_readiness_does_not_replace_the_global_inference_check(self):
+        item = scenario()
+        item["steps"].append({"content": "```bash\ncurl http://<server_ip>:<port>/v1/models\n```"})
+        result = self.parse([item], verification="```bash\ncurl http://<server_ip>:<port>/v1/embeddings\n```")
+        self.assertEqual(len(result["scenarios"][0]["verify_cmds"]), 2)
+
+    def test_qwen_a5_requests_target_served_name_and_keep_chat_benchmark(self):
+        recipe = yaml.safe_load((ROOT / "models/en/Qwen/Qwen3.5-27B-Qwen3.6-27B.yaml").read_text(encoding="utf-8"))
+        selected = [item for item in recipe["scenarios"] if item["npu"] == "Ascend 950DT"]
+        result = self.parse(selected, verification=recipe["verification"])
+        checks = result["scenarios"][0]["verify_cmds"]
+        self.assertEqual(len(checks), 2)
+        for command in checks:
+            self.assertIn('"model":"qwen3.6"', command.replace(" ", ""))
+            self.assertNotIn('"model":"qwen3.5"', command.replace(" ", ""))
+        self.assertTrue(result["scenarios"][0]["benchmark_chat"])
+
+    def test_glm_a5_uses_dtype_flags_instead_of_removed_sparse_c8_option(self):
+        for language in ("en", "zh"):
+            with self.subTest(language=language):
+                recipe = yaml.safe_load((ROOT / f"models/{language}/THUDM/GLM-5.yaml").read_text(encoding="utf-8"))
+                selected = [dict(item, deployment="Single-Node") for item in recipe["scenarios"]
+                            if item.get("strategy") == "single_node_A5"]
+                result = self.parse(selected)
+                self.assertEqual(len(result["scenarios"]), 1)
+                args = shlex.split(result["scenarios"][0]["serve_cmd"].replace("\\\n", " "))
+                config = json.loads(args[args.index("--additional-config") + 1])
+                self.assertNotIn("enable_sparse_c8", config)
+                self.assertEqual(args[args.index("--kv-cache-dtype") + 1], "fp8")
+                self.assertEqual(args[args.index("--attention_config.indexer_kv_dtype") + 1], "fp8")
 
     def test_python_reranker_check_is_not_reduced_to_server_readiness(self):
         text = "```python\nimport requests\nrequests.post('http://<server_ip>:<port>/score', json={})\n```"
@@ -295,6 +356,36 @@ class RecipeParserTests(unittest.TestCase):
 
 
 class RecipeWorkflowLoopTests(unittest.TestCase):
+    def test_benchmark_refreshes_arrow_after_install_and_propagates_refresh_failure(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/_recipe_verify.yml").read_text(encoding="utf-8"))
+        step = next(s for s in workflow["jobs"]["recipe-verify"]["steps"] if s.get("name") == "Install benchmark tools")
+        # Replace only the external package installer; execute the real step's
+        # shell, ordering and failure handling without downloading packages.
+        installer = '''pip() {
+  printf '%s\\n' "$*" >> "$PIP_CALLS"
+  if [[ "$*" == *"pyarrow==25.0.0"* ]]; then
+    return "$ARROW_INSTALL_EXIT"
+  fi
+  return 0
+}
+'''
+        for install_exit in (0, 23):
+            with self.subTest(install_exit=install_exit), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                entry = root / "install-step.sh"
+                entry.write_text(installer + step["run"], encoding="utf-8", newline="\n")
+                calls_path = root / "pip-calls.txt"
+                env = {**os.environ, "PIP_CALLS": str(calls_path), "ARROW_INSTALL_EXIT": str(install_exit)}
+                shell = shlex.split(workflow["defaults"]["run"]["shell"])
+                result = subprocess.run([part.replace("{0}", str(entry)) for part in shell],
+                                        env=env, text=True, capture_output=True)
+                calls = [shlex.split(line) for line in calls_path.read_text().splitlines()]
+                aisbench = next(i for i, args in enumerate(calls) if "ais_bench_benchmark" in args)
+                arrow = [i for i, args in enumerate(calls) if "pyarrow==25.0.0" in args]
+                self.assertEqual(len(arrow), 1, result.stdout)
+                self.assertGreater(arrow[0], aisbench)
+                self.assertEqual(result.returncode, install_exit, result.stderr)
+
     def test_skip_and_failure_are_stamped_and_do_not_abort_later_recipes(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/_recipe_verify.yml").read_text(encoding="utf-8"))
         step = next(s for s in workflow["jobs"]["recipe-verify"]["steps"] if s.get("name") == "Verify recipes")
