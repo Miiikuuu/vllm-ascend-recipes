@@ -503,6 +503,8 @@ scenarios:
       python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device cpu --server-url http://127.0.0.1:8000/v1 --output document-output
       ```
 verification: |-
+  Sample downloads try PaddlePaddle's official ModelScope dataset first, then the pinned Hugging Face dataset. Both copies must match the same SHA256 values; the manifest retains the pinned Hugging Face provenance. If both endpoints are unavailable, prefetch the exact originals into samples/ as described below. A download failure stops verification before inference.
+
   Run this self-contained block in an empty working directory; it writes the sample and verification scripts and checks both served aliases. The tutorial receipt URL currently returns HTTP 400, so these checks use pinned official demonstration images and crop only input regions. Sources, coordinates and hashes are recorded. If the NPU container cannot reach Hugging Face, download the same four original source files on the client and transfer them into samples/ before running this block; their hashes are checked again. These are functional sample assertions, not OmniDocBench accuracy. Table output is OTSL; the document pipeline converts it to HTML.
 
   ```bash
@@ -527,23 +529,28 @@ verification: |-
   }
 
 
-  def download_source(url):
-      for attempt in range(1, 4):
-          print(f'Sample download {attempt}/3: GET {url}', flush=True)
-          try:
-              with urllib.request.urlopen(url, timeout=90) as response:
-                  return response.read()
-          except OSError as error:
-              retryable = not isinstance(error, urllib.error.HTTPError) or error.code in {408, 429, 500, 502, 503, 504}
-              if not retryable or attempt == 3:
-                  raise OSError(
-                      f'Sample download failed: GET {url}: {error}. '
-                      'Prefetch the same pinned original into samples/ on a network-enabled client; '
-                      'the SHA256 check remains required.'
-                  ) from error
-              delay = 2 ** attempt
-              print(f'Sample download failed: GET {url}: {error}; retrying in {delay}s', flush=True)
-              time.sleep(delay)
+  def download_source(urls):
+      failures = []
+      for url in urls:
+          for attempt in range(1, 4):
+              print(f'Sample download {attempt}/3: GET {url}', flush=True)
+              try:
+                  with urllib.request.urlopen(url, timeout=90) as response:
+                      return response.read()
+              except OSError as error:
+                  retryable = not isinstance(error, urllib.error.HTTPError) or error.code in {408, 429, 500, 502, 503, 504}
+                  if not retryable or attempt == 3:
+                      failures.append(f'GET {url}: {error}')
+                      print(f'Sample source unavailable: {failures[-1]}', flush=True)
+                      break
+                  delay = 2 ** attempt
+                  print(f'Sample download failed: GET {url}: {error}; retrying in {delay}s', flush=True)
+                  time.sleep(delay)
+      raise OSError(
+          f'Sample download failed from all official sources: {"; ".join(failures)}. '
+          'Prefetch the same pinned original into samples/ on a network-enabled client; '
+          'the SHA256 check remains required.'
+      )
 
 
   parser = argparse.ArgumentParser()
@@ -556,7 +563,9 @@ verification: |-
       source = (args.source_dir or args.output) / filename
       url = '/'.join(('https://huggingface.co', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', REVISION, 'imgs', filename))
       if not source.exists():
-          data = download_source(url)
+          # Both official dataset copies must match the immutable source hash below.
+          modelscope_url = f'https://modelscope.cn/datasets/PaddlePaddle/PaddleOCR-VL_demo/resolve/master/imgs/{filename}'
+          data = download_source((modelscope_url, url))
           assert hashlib.sha256(data).hexdigest() == expected_hash, f'Source mismatch: {filename}'
           source.write_bytes(data)
       data = source.read_bytes()
@@ -745,5 +754,7 @@ references:
   url: https://huggingface.co/datasets/opendatalab/OmniDocBench/tree/v1_5
 - title: Official demonstration assets
   url: https://huggingface.co/datasets/PaddlePaddle/PaddleOCR-VL_demo/tree/702b96b0a06740b0ed3d41ba382a5bf69986dcae/imgs
+- title: Official demonstration assets on ModelScope (same SHA256 required)
+  url: https://modelscope.cn/datasets/PaddlePaddle/PaddleOCR-VL_demo
 - title: Ascend support matrix
   url: https://docs.vllm.ai/projects/ascend/en/latest/user_guide/support_matrix/supported_models.html

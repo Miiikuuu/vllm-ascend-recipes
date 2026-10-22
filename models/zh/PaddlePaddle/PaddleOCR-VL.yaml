@@ -487,6 +487,8 @@ scenarios:
       python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device cpu --server-url http://127.0.0.1:8000/v1 --output document-output
       ```
 verification: |-
+  样例下载优先使用 PaddlePaddle 官方 ModelScope 数据集，失败后再尝试固定版本的 Hugging Face 数据集。两个来源均须匹配相同的 SHA256；清单保留固定版本的 Hugging Face 来源信息。若两个地址都不可用，按下文说明将完全相同的原图预置到 samples/。下载失败会在推理前终止验证。
+
   在空工作目录执行下面的完整代码块；它会写入样本准备和验证脚本，并检查两个服务模型别名。
 
   教程收据链接目前返回 HTTP 400，因此检查使用固定的官方演示图，仅裁剪输入区域，并记录来源、坐标及哈希。NPU 容器无法访问 Hugging Face 时，在客户端下载相同的四张原始图，并在执行本代码块前传入 samples/；脚本会再次检查哈希。这些是功能样例断言，不是 OmniDocBench 精度结果。表格原始输出为 OTSL，文档流水线将其转换为 HTML。
@@ -513,23 +515,28 @@ verification: |-
   }
 
 
-  def download_source(url):
-      for attempt in range(1, 4):
-          print(f'Sample download {attempt}/3: GET {url}', flush=True)
-          try:
-              with urllib.request.urlopen(url, timeout=90) as response:
-                  return response.read()
-          except OSError as error:
-              retryable = not isinstance(error, urllib.error.HTTPError) or error.code in {408, 429, 500, 502, 503, 504}
-              if not retryable or attempt == 3:
-                  raise OSError(
-                      f'Sample download failed: GET {url}: {error}. '
-                      'Prefetch the same pinned original into samples/ on a network-enabled client; '
-                      'the SHA256 check remains required.'
-                  ) from error
-              delay = 2 ** attempt
-              print(f'Sample download failed: GET {url}: {error}; retrying in {delay}s', flush=True)
-              time.sleep(delay)
+  def download_source(urls):
+      failures = []
+      for url in urls:
+          for attempt in range(1, 4):
+              print(f'Sample download {attempt}/3: GET {url}', flush=True)
+              try:
+                  with urllib.request.urlopen(url, timeout=90) as response:
+                      return response.read()
+              except OSError as error:
+                  retryable = not isinstance(error, urllib.error.HTTPError) or error.code in {408, 429, 500, 502, 503, 504}
+                  if not retryable or attempt == 3:
+                      failures.append(f'GET {url}: {error}')
+                      print(f'Sample source unavailable: {failures[-1]}', flush=True)
+                      break
+                  delay = 2 ** attempt
+                  print(f'Sample download failed: GET {url}: {error}; retrying in {delay}s', flush=True)
+                  time.sleep(delay)
+      raise OSError(
+          f'Sample download failed from all official sources: {"; ".join(failures)}. '
+          'Prefetch the same pinned original into samples/ on a network-enabled client; '
+          'the SHA256 check remains required.'
+      )
 
 
   parser = argparse.ArgumentParser()
@@ -542,7 +549,9 @@ verification: |-
       source = (args.source_dir or args.output) / filename
       url = '/'.join(('https://huggingface.co', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', REVISION, 'imgs', filename))
       if not source.exists():
-          data = download_source(url)
+          # Both official dataset copies must match the immutable source hash below.
+          modelscope_url = f'https://modelscope.cn/datasets/PaddlePaddle/PaddleOCR-VL_demo/resolve/master/imgs/{filename}'
+          data = download_source((modelscope_url, url))
           assert hashlib.sha256(data).hexdigest() == expected_hash, f'Source mismatch: {filename}'
           source.write_bytes(data)
       data = source.read_bytes()
@@ -727,5 +736,7 @@ references:
   url: https://huggingface.co/datasets/opendatalab/OmniDocBench/tree/v1_5
 - title: 官方演示素材
   url: https://huggingface.co/datasets/PaddlePaddle/PaddleOCR-VL_demo/tree/702b96b0a06740b0ed3d41ba382a5bf69986dcae/imgs
+- title: ModelScope 官方演示素材（须匹配相同 SHA256）
+  url: https://modelscope.cn/datasets/PaddlePaddle/PaddleOCR-VL_demo
 - title: 昇腾支持矩阵
   url: https://docs.vllm.ai/projects/ascend/en/latest/user_guide/support_matrix/supported_models.html
