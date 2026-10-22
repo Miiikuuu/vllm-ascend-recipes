@@ -15,10 +15,70 @@ import yaml
 NIGHTLY_LIST = ".github/nightly-recipes.yaml"
 IMAGE_BASE = "swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/vllm-ascend:"
 HARDWARE = {
-    "a2": ("atlas_800_a2", r"\bA2\b", "linux-aarch64-a2b4-8"),
-    "a3": ("atlas_800_a3", r"\bA3\b", "linux-aarch64-a3-800i-16-cn12-001"),
-    "a5": ("ascend_950dt", r"\b950DT\b", "linux-aarch64-a5-8"),
+    "a2": ("atlas_800_a2", r"\bA2\b"),
+    "a3": ("atlas_800_a3", r"\bA3\b"),
+    "a5": ("ascend_950dt", r"\b950DT\b"),
 }
+
+# hardware_key -> env_setup.container section keys that document the device
+# mounts. Recipes spell the same family inconsistently: the short "A2",
+# the display form "Atlas 800 A2", and the raw hardware key "atlas_800_a2".
+CONTAINER_SECTIONS = {
+    "atlas_800_a2": ("A2", "Atlas 800 A2", "atlas_800_a2"),
+    "atlas_800_a3": ("A3", "Atlas 800 A3", "atlas_800_a3"),
+    "ascend_950dt": ("A5", "Ascend 950DT", "ascend_950dt"),
+}
+
+# Required NPU count -> self-hosted runner label per family. A recipe is
+# dispatched to the smallest runner that fits its declared device mounts,
+# instead of always occupying the largest pool. The 0-card pools are CPU-only
+# controllers and are never selected for `vllm serve` verification.
+RUNNERS = {
+    "a2": {
+        0: "linux-aarch64-a2b4-0",
+        2: "linux-aarch64-a2b4-2",
+        4: "linux-aarch64-a2b4-4",
+        8: "linux-aarch64-a2b4-8",
+    },
+    "a3": {
+        2: "linux-aarch64-a3-800i-2-cn12-001",
+        4: "linux-aarch64-a3-800i-4-cn12-001",
+        8: "linux-aarch64-a3-800i-8-cn12-001",
+        16: "linux-aarch64-a3-800i-16-cn12-001",
+    },
+    "a5": {
+        0: "linux-aarch64-a5-0",
+        2: "linux-aarch64-a5-2",
+        4: "linux-aarch64-a5-4",
+        8: "linux-aarch64-a5-8",
+    },
+}
+
+
+def required_cards(recipe: dict, hardware_key: str) -> int:
+    """Count the NPUs a recipe declares via its env_setup container mounts."""
+    container = recipe.get("env_setup", {}).get("container", {})
+    if not isinstance(container, dict):
+        return 0
+    for section in CONTAINER_SECTIONS.get(hardware_key, ()):
+        block = container.get(section)
+        if not isinstance(block, dict):
+            continue
+        content = block.get("content", "")
+        if isinstance(content, str):
+            return len(re.findall(r"--device[\s=]+/dev/davinci\d+", content))
+    return 0
+
+
+def pick_runner(family: str, cards: int) -> str:
+    """Smallest runner that fits `cards`; fall back to the largest pool."""
+    pools = sorted(RUNNERS[family].items())
+    if cards <= 0:
+        return pools[-1][1]
+    for capacity, runner in pools:
+        if capacity >= cards:
+            return runner
+    return pools[-1][1]
 
 
 def recipe_image(recipe: dict, family: str, trigger: str) -> str:
@@ -35,7 +95,7 @@ def single_node_scenarios(recipe: dict, hardware_key: str) -> list[dict]:
     """Use the same hardware/deployment predicate for planning and execution."""
     if recipe.get("meta", {}).get("hardware", {}).get(hardware_key) == "unsupported":
         return []
-    pattern = next(pattern for key, pattern, _ in HARDWARE.values() if key == hardware_key)
+    pattern = next(pattern for key, pattern in HARDWARE.values() if key == hardware_key)
 
     def has_single_node_serve(scenario: dict) -> bool:
         blocks = [block for step in scenario.get("steps", [])
@@ -99,8 +159,8 @@ def build_plan(root: Path, trigger: str, *, changed_files: list[str] | None = No
 
     changed = set(english_recipes(changed_files or []))
     recipes, jobs = {}, []
-    for family, (key, _, runner) in HARDWARE.items():
-        image_groups: dict[str, list[str]] = {}
+    for family, (key, _) in HARDWARE.items():
+        image_groups: dict[tuple[str, str], list[str]] = {}
         for entry in candidates.get(family, []):
             if isinstance(entry, dict) and (set(entry) - {"recipe", "image"} or not isinstance(entry.get("recipe"), str)):
                 raise ValueError("nightly entry must contain recipe and optional image")
@@ -133,11 +193,12 @@ def build_plan(root: Path, trigger: str, *, changed_files: list[str] | None = No
             # Preserve the repository, tag/digest and hardware-specific suffix.
             if image.startswith("quay.io/"):
                 image = "quay.nju.edu.cn/" + image.removeprefix("quay.io/")
-            image_groups.setdefault(image, []).append(name)
+            runner = pick_runner(family, required_cards(recipes[name], key))
+            image_groups.setdefault((image, runner), []).append(name)
         if hardware_filter not in {"all", family}:
             continue
-        for image, paths in sorted(image_groups.items()):
-            job_id = f"{family}-{hashlib.sha256(image.encode()).hexdigest()[:10]}"
+        for (image, runner), paths in sorted(image_groups.items()):
+            job_id = f"{family}-{hashlib.sha256((image + runner).encode()).hexdigest()[:10]}"
             jobs.append({"hardware": family, "hardware_key": key, "runner": runner, "job_id": job_id,
                          "recipe_files": json.dumps(sorted(set(paths)), separators=(",", ":")),
                          "mount_share": family == "a5", "image": image})
