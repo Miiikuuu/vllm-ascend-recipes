@@ -550,7 +550,7 @@ verification: |-
       url = '/'.join(('https://huggingface.co', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', REVISION, 'imgs', filename))
       if not source.exists():
           # Both official dataset copies must match the immutable source hash below.
-          modelscope_url = f'https://modelscope.cn/datasets/PaddlePaddle/PaddleOCR-VL_demo/resolve/master/imgs/{filename}'
+          modelscope_url = '/'.join(('https://modelscope.cn', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', 'master', 'imgs', filename))
           data = download_source((modelscope_url, url))
           assert hashlib.sha256(data).hexdigest() == expected_hash, f'Source mismatch: {filename}'
           source.write_bytes(data)
