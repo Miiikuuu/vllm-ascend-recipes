@@ -511,6 +511,8 @@ verification: |-
   import argparse
   import hashlib
   import json
+  import time
+  import urllib.error
   import urllib.request
   from pathlib import Path
 
@@ -523,6 +525,27 @@ verification: |-
       'formula': ('formula_EN.jpg', (126, 1328, 594, 1570), 'b9a96b4be44896a45df21103ba1b06af18621381b563707a42fa6cdf21f837d1'),
       'chart': ('chart_01.jpg', (27, 81, 614, 400), 'd77acb00585d16f978123bc8288c41e7a589083df51e18076a20853892c0d4a9'),
   }
+
+
+  def download_source(url):
+      for attempt in range(1, 4):
+          print(f'Sample download {attempt}/3: GET {url}', flush=True)
+          try:
+              with urllib.request.urlopen(url, timeout=90) as response:
+                  return response.read()
+          except OSError as error:
+              retryable = not isinstance(error, urllib.error.HTTPError) or error.code in {408, 429, 500, 502, 503, 504}
+              if not retryable or attempt == 3:
+                  raise OSError(
+                      f'Sample download failed: GET {url}: {error}. '
+                      'Prefetch the same pinned original into samples/ on a network-enabled client; '
+                      'the SHA256 check remains required.'
+                  ) from error
+              delay = 2 ** attempt
+              print(f'Sample download failed: GET {url}: {error}; retrying in {delay}s', flush=True)
+              time.sleep(delay)
+
+
   parser = argparse.ArgumentParser()
   parser.add_argument('--output', type=Path, default=Path('samples'))
   parser.add_argument('--source-dir', type=Path)
@@ -533,8 +556,9 @@ verification: |-
       source = (args.source_dir or args.output) / filename
       url = '/'.join(('https://huggingface.co', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', REVISION, 'imgs', filename))
       if not source.exists():
-          with urllib.request.urlopen(url, timeout=90) as response:
-              source.write_bytes(response.read())
+          data = download_source(url)
+          assert hashlib.sha256(data).hexdigest() == expected_hash, f'Source mismatch: {filename}'
+          source.write_bytes(data)
       data = source.read_bytes()
       assert hashlib.sha256(data).hexdigest() == expected_hash, f'Source mismatch: {filename}'
       # The official demo collages contain input and expected output panels.
@@ -556,14 +580,28 @@ verification: |-
   import json
   import re
   import time
+  import urllib.error
   import urllib.request
   from pathlib import Path
 
   TASKS = {'ocr': 'OCR:', 'table': 'Table Recognition:', 'formula': 'Formula Recognition:', 'chart': 'Chart Recognition:'}
 
 
+  def open_api(request, timeout):
+      url = request.full_url if isinstance(request, urllib.request.Request) else request
+      method = request.get_method() if isinstance(request, urllib.request.Request) else 'GET'
+      print(f'API request: {method} {url}', flush=True)
+      try:
+          return urllib.request.urlopen(request, timeout=timeout)
+      except urllib.error.HTTPError as error:
+          detail = error.read(1024).decode('utf-8', errors='replace')
+          raise OSError(f'API request failed: {method} {url}: HTTP {error.code}; response: {detail}') from error
+      except OSError as error:
+          raise OSError(f'API request failed: {method} {url}: {error}') from error
+
+
   def get_json(url):
-      with urllib.request.urlopen(url, timeout=15) as response:
+      with open_api(url, timeout=15) as response:
           return json.load(response)
 
 
@@ -593,7 +631,7 @@ verification: |-
       parser.add_argument('--warmup', type=int, default=0)
       args = parser.parse_args()
       args.output.mkdir(parents=True, exist_ok=True)
-      with urllib.request.urlopen(args.base_url + '/health', timeout=15) as response:
+      with open_api(args.base_url + '/health', timeout=15) as response:
           assert response.status == 200
       models = get_json(args.base_url + '/v1/models')
       (args.output / 'models.json').write_text(json.dumps(models, indent=2))
@@ -607,7 +645,7 @@ verification: |-
                   {'type': 'text', 'text': prompt}]}], 'temperature': 0.0, 'max_tokens': 2048, 'seed': 0}
               request = urllib.request.Request(args.base_url + '/v1/chat/completions', data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
               start = time.perf_counter()
-              with urllib.request.urlopen(request, timeout=300) as response:
+              with open_api(request, timeout=300) as response:
                   result = json.load(response)
               latency = time.perf_counter() - start
               (args.output / f'{task}-{repeat}.json').write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n')
