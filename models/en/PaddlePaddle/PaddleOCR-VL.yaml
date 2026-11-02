@@ -206,7 +206,7 @@ scenarios:
           --host 127.0.0.1 --port 8000
       ```
   - title: Verify real recognition
-    content: Run the four-task functional verification below after /health succeeds. Inspect raw outputs, finish
+    content: Run the OCR smoke check below after /health succeeds; use the linked standalone helpers for the optional four-task regression. Inspect raw outputs, finish
       reasons and server errors. For 310P graph mode require CANN >= 9.0.0; eager is the documented fallback.
 - npu: Atlas 300I DUO
   precision: FP16
@@ -238,7 +238,7 @@ scenarios:
           --host 127.0.0.1 --port 8000
       ```
   - title: Verify real recognition
-    content: Run the four-task functional verification below after /health succeeds. Inspect raw outputs, finish
+    content: Run the OCR smoke check below after /health succeeds; use the linked standalone helpers for the optional four-task regression. Inspect raw outputs, finish
       reasons and server errors. For 310P graph mode require CANN >= 9.0.0; eager is the documented fallback.
 - npu: Atlas 300I DUO
   precision: FP16
@@ -270,7 +270,7 @@ scenarios:
           --host 127.0.0.1 --port 8000
       ```
   - title: Verify real recognition
-    content: Run the four-task functional verification below after /health succeeds. Inspect raw outputs, finish
+    content: Run the OCR smoke check below after /health succeeds; use the linked standalone helpers for the optional four-task regression. Inspect raw outputs, finish
       reasons and server errors. For 310P graph mode require CANN >= 9.0.0; eager is the documented fallback.
 - npu: Atlas 800I A2
   precision: BF16
@@ -503,186 +503,36 @@ scenarios:
       python parse_document.py --input https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png --layout-model PP-DocLayoutV2 --layout-device cpu --server-url http://127.0.0.1:8000/v1 --output document-output
       ```
 verification: |-
-  Sample downloads try PaddlePaddle's official ModelScope dataset first, then the pinned Hugging Face dataset. Both copies must match the same SHA256 values; the manifest retains the pinned Hugging Face provenance. If both endpoints are unavailable, prefetch the exact originals into samples/ as described below. A download failure stops verification before inference.
+  After the server is ready, run this OCR request from the tutorial. Replace `<server_ip>` and `<port>` with your server address. The unavailable receipt URL is replaced with the official PaddleOCR demonstration image; expect non-empty OCR text for this image, not the original receipt transcript. A successful response must finish normally. This is an API smoke check, not an accuracy or performance result.
 
-  Run this self-contained block in an empty working directory; it writes the sample and verification scripts and checks both served aliases. The tutorial receipt URL currently returns HTTP 400, so these checks use pinned official demonstration images and crop only input regions. Sources, coordinates and hashes are recorded. If the NPU container cannot reach Hugging Face, download the same four original source files on the client and transfer them into samples/ before running this block; their hashes are checked again. These are functional sample assertions, not OmniDocBench accuracy. Table output is OTSL; the document pipeline converts it to HTML.
-
-  ```bash
-  set -euo pipefail
-  cat > prepare_samples.py <<'PADDLE_SAMPLES_PY'
-  import argparse
-  import hashlib
+  ```python
   import json
-  import time
-  import urllib.error
   import urllib.request
-  from pathlib import Path
 
-  from PIL import Image
-
-  REVISION = '702b96b0a06740b0ed3d41ba382a5bf69986dcae'
-  SAMPLES = {
-      'ocr': ('text_english_arabic.jpg', (45, 159, 607, 449), 'f670627f3afa2e7ea312c71ce5c3c7b77a42938f9a1e62e5ba2505e19f5dede7'),
-      'table': ('table_01.jpg', (713, 81, 1302, 424), 'ca798601c74d70cbb34a3a0b91161d21b79513bb049791c96dfed14bb087ceaf'),
-      'formula': ('formula_EN.jpg', (126, 1328, 594, 1570), 'b9a96b4be44896a45df21103ba1b06af18621381b563707a42fa6cdf21f837d1'),
-      'chart': ('chart_01.jpg', (27, 81, 614, 400), 'd77acb00585d16f978123bc8288c41e7a589083df51e18076a20853892c0d4a9'),
+  payload = {
+      "model": "PaddleOCR-VL-0.9B",
+      "messages": [{"role": "user", "content": [
+          {"type": "image_url", "image_url": {"url":
+              "https://paddle-model-ecology.bj.bcebos.com/paddlex/imgs/demo_image/paddleocr_vl_demo.png"}},
+          {"type": "text", "text": "OCR:"},
+      ]}],
+      "temperature": 0.0,
+      "max_tokens": 2048,
   }
-
-
-  def download_source(urls):
-      failures = []
-      for url in urls:
-          for attempt in range(1, 4):
-              print(f'Sample download {attempt}/3: GET {url}', flush=True)
-              try:
-                  with urllib.request.urlopen(url, timeout=90) as response:
-                      return response.read()
-              except OSError as error:
-                  retryable = not isinstance(error, urllib.error.HTTPError) or error.code in {408, 429, 500, 502, 503, 504}
-                  if not retryable or attempt == 3:
-                      failures.append(f'GET {url}: {error}')
-                      print(f'Sample source unavailable: {failures[-1]}', flush=True)
-                      break
-                  delay = 2 ** attempt
-                  print(f'Sample download failed: GET {url}: {error}; retrying in {delay}s', flush=True)
-                  time.sleep(delay)
-      raise OSError(
-          f'Sample download failed from all official sources: {"; ".join(failures)}. '
-          'Prefetch the same pinned original into samples/ on a network-enabled client; '
-          'the SHA256 check remains required.'
-      )
-
-
-  parser = argparse.ArgumentParser()
-  parser.add_argument('--output', type=Path, default=Path('samples'))
-  parser.add_argument('--source-dir', type=Path)
-  args = parser.parse_args()
-  args.output.mkdir(parents=True, exist_ok=True)
-  manifest = []
-  for task, (filename, box, expected_hash) in SAMPLES.items():
-      source = (args.source_dir or args.output) / filename
-      url = '/'.join(('https://huggingface.co', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', REVISION, 'imgs', filename))
-      if not source.exists():
-          # Both official dataset copies must match the immutable source hash below.
-          modelscope_url = '/'.join(('https://modelscope.cn', 'datasets', 'PaddlePaddle', 'PaddleOCR-VL_demo', 'resolve', 'master', 'imgs', filename))
-          data = download_source((modelscope_url, url))
-          assert hashlib.sha256(data).hexdigest() == expected_hash, f'Source mismatch: {filename}'
-          source.write_bytes(data)
-      data = source.read_bytes()
-      assert hashlib.sha256(data).hexdigest() == expected_hash, f'Source mismatch: {filename}'
-      # The official demo collages contain input and expected output panels.
-      # Crop only the input element; record coordinates in original pixels.
-      with Image.open(source) as image:
-          sx, sy = image.width / 1335, image.height / 1888
-          coordinates = tuple(round(value * (sx if index % 2 == 0 else sy)) for index, value in enumerate(box))
-          crop = image.crop(coordinates)
-          crop.thumbnail((1536, 1536))
-          target = args.output / f'{task}-crop.png'
-          crop.save(target)
-      manifest.append({'task': task, 'source_url': url, 'source_sha256': expected_hash, 'crop_coordinates': coordinates, 'crop_sha256': hashlib.sha256(target.read_bytes()).hexdigest()})
-  (args.output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-  PADDLE_SAMPLES_PY
-  cat > verify.py <<'PADDLE_VERIFY_PY'
-  import argparse
-  import base64
-  import hashlib
-  import json
-  import re
-  import time
-  import urllib.error
-  import urllib.request
-  from pathlib import Path
-
-  TASKS = {'ocr': 'OCR:', 'table': 'Table Recognition:', 'formula': 'Formula Recognition:', 'chart': 'Chart Recognition:'}
-
-
-  def open_api(request, timeout):
-      url = request.full_url if isinstance(request, urllib.request.Request) else request
-      method = request.get_method() if isinstance(request, urllib.request.Request) else 'GET'
-      print(f'API request: {method} {url}', flush=True)
-      try:
-          return urllib.request.urlopen(request, timeout=timeout)
-      except urllib.error.HTTPError as error:
-          detail = error.read(1024).decode('utf-8', errors='replace')
-          raise OSError(f'API request failed: {method} {url}: HTTP {error.code}; response: {detail}') from error
-      except OSError as error:
-          raise OSError(f'API request failed: {method} {url}: {error}') from error
-
-
-  def get_json(url):
-      with open_api(url, timeout=15) as response:
-          return json.load(response)
-
-
-  def check_content(task, content):
-      normalized = re.sub(r'\s+', '', content).lower()
-      if task == 'ocr':
-          expected = ['paddleocr', 'opensource', '2020', 'recognition']
-          normalized = re.sub(r'[^a-z0-9]', '', content.lower())
-      elif task == 'table':
-          expected = ['<fcel>', '<nl>', 'regularhours', 'monday'] + [f'11/{day}/2013' for day in range(1, 15)]
-      elif task == 'formula':
-          expected = ['f(x)', '2x', 'f(3)', '=27']
-          normalized = normalized.replace('\\left', '').replace('\\right', '').replace('{', '').replace('}', '')
-      else:
-          expected = ['2017', '2024', '37', '22']
-      missing = [value for value in expected if value not in normalized]
-      return {'expected_fragments': expected, 'missing_fragments': missing, 'otsl_row_count': content.count('<nl>') if task == 'table' else None, 'passed': not missing and (task != 'table' or content.count('<nl>') == 15)}
-
-
-  def main():
-      parser = argparse.ArgumentParser()
-      parser.add_argument('--base-url', required=True)
-      parser.add_argument('--model', default='PaddleOCR-VL-0.9B')
-      parser.add_argument('--samples', type=Path, required=True)
-      parser.add_argument('--output', type=Path, required=True)
-      parser.add_argument('--repeats', type=int, default=1)
-      parser.add_argument('--warmup', type=int, default=0)
-      args = parser.parse_args()
-      args.output.mkdir(parents=True, exist_ok=True)
-      with open_api(args.base_url + '/health', timeout=15) as response:
-          assert response.status == 200
-      models = get_json(args.base_url + '/v1/models')
-      (args.output / 'models.json').write_text(json.dumps(models, indent=2))
-      assert any(item['id'] == args.model for item in models['data'])
-      results = []
-      for repeat in range(-args.warmup, args.repeats):
-          for task, prompt in TASKS.items():
-              data = (args.samples / (task + '-crop.png')).read_bytes()
-              payload = {'model': args.model, 'messages': [{'role': 'user', 'content': [
-                  {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,' + base64.b64encode(data).decode()}},
-                  {'type': 'text', 'text': prompt}]}], 'temperature': 0.0, 'max_tokens': 2048, 'seed': 0}
-              request = urllib.request.Request(args.base_url + '/v1/chat/completions', data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json'})
-              start = time.perf_counter()
-              with open_api(request, timeout=300) as response:
-                  result = json.load(response)
-              latency = time.perf_counter() - start
-              (args.output / f'{task}-{repeat}.json').write_text(json.dumps(result, indent=2, ensure_ascii=False) + '\n')
-              choice = result['choices'][0]
-              check = check_content(task, choice['message']['content'])
-              check['finish_reason'] = choice['finish_reason']
-              check['passed'] = check['passed'] and choice['finish_reason'] == 'stop'
-              row = {'task': task, 'repeat': repeat, 'warmup': repeat < 0, 'input_sha256': hashlib.sha256(data).hexdigest(), 'latency_seconds': latency, 'usage': result.get('usage'), 'validation': check}
-              results.append(row)
-              (args.output / 'summary.json').write_text(json.dumps({'definition': 'functional sample checks; not a dataset accuracy score', 'concurrency': 1, 'temperature': 0.0, 'seed': 0, 'max_tokens': 2048, 'warmup_rounds': args.warmup, 'repeats': args.repeats, 'results': results}, indent=2, ensure_ascii=False) + '\n')
-              print(json.dumps(row, ensure_ascii=False), flush=True)
-      if not all(row['validation']['passed'] for row in results):
-          raise SystemExit('Functional sample validation failed; inspect raw outputs')
-
-
-  if __name__ == '__main__':
-      main()
-  PADDLE_VERIFY_PY
-  python prepare_samples.py --output samples
-  python verify.py --base-url 'http://<server_ip>:<port>' --model PaddlePaddle/PaddleOCR-VL --samples samples --output request-results-canonical --warmup 0 --repeats 1
-  python verify.py --base-url 'http://<server_ip>:<port>' --model PaddleOCR-VL-0.9B --samples samples --output request-results-alias --warmup 0 --repeats 1
+  request = urllib.request.Request(
+      "http://<server_ip>:<port>/v1/chat/completions",
+      data=json.dumps(payload).encode(),
+      headers={"Content-Type": "application/json"},
+  )
+  with urllib.request.urlopen(request, timeout=300) as response:
+      result = json.load(response)
+  choice = result["choices"][0]
+  assert choice["message"]["content"].strip(), result
+  assert choice["finish_reason"] == "stop", result
+  print(choice["message"]["content"])
   ```
 
-  For repeated observations after the functional check:
-
-  ```bash
-  python verify.py --base-url 'http://<server_ip>:<port>' --samples samples --output request-results-repeated --warmup 1 --repeats 3
-  ```
+  For the optional four-task, dual-alias regression and repeated timing checks, use the [standalone helpers](https://github.com/vllm-ascend/vllm-ascend-recipes/tree/main/scripts/paddleocr-vl). They preserve sample hashes, input-only crops, raw responses and content assertions without embedding the tooling in this page.
 evaluation:
   accuracy:
     content: |-
@@ -719,8 +569,10 @@ evaluation:
       ModelZoo reports 12.10 seconds per input file on one 300I DUO chip. Its test.py measures the complete prediction loop after pipeline initialization, with orientation and unwarping disabled; it does not document warmup, concurrency, image resizing or output-token limits. Record those details and PDF/image input mode before comparing. The verify.py sample timings are API end-to-end latencies at concurrency 1, one warmup round, three measured repeats, temperature 0, seed 0 and max_tokens 2048; they are not the ModelZoo full-document benchmark. Capture NPU memory with npu-smi and torch allocator logs, keeping startup activation peak separate from observed runtime samples.
 
       ```bash
+      # Run from the recipe repository root; see the standalone helpers README.
+      python scripts/paddleocr-vl/prepare_samples.py --output samples
       npu-smi info
-      python verify.py --base-url 'http://127.0.0.1:8000' --samples samples --output benchmark-results --warmup 1 --repeats 3
+      python scripts/paddleocr-vl/verify.py --base-url 'http://127.0.0.1:8000' --samples samples --output benchmark-results --warmup 1 --repeats 3
       npu-smi info
       ```
 
